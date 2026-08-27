@@ -57,11 +57,15 @@ port = 8088
 #
 # The refresh is skipped when status.json is already newer than Level.sav:
 # the server only rewrites the save every few minutes, and re-parsing an
-# unchanged save costs a full parse to produce identical numbers. The age
-# ceiling below is for the half of the page that isn't in the save at all
-# (who is online, uptime) and does keep moving while the save sits still.
+# unchanged save costs a full parse to produce identical numbers.
+#
+# The half of the page that isn't in the save at all — who is online,
+# uptime, the day count — doesn't go through any of this: the page polls
+# /live.json, which the server answers from the REST API in about ten
+# milliseconds. So the ceiling below is only a backstop for a dashboard
+# nobody is watching and a save that has stopped changing.
 live_regenerate = true
-live_max_age_seconds = 120
+live_max_age_seconds = 600
 
 [history]
 # How much trend data to keep. A resource snapshot is ~8KB (500 of them at

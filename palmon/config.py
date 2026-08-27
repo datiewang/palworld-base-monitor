@@ -155,13 +155,14 @@ WEB_PORT = setting("web", "port", 8088)
 # is never older than the save it reports on; off, it serves whatever the
 # last timer run wrote.
 WEB_LIVE_REGENERATE = setting("web", "live_regenerate", True)
-# The ceiling on how stale a *live* answer may be. The refresh itself is
-# skipped whenever status.json is already newer than Level.sav — the save is
-# only rewritten every few minutes, and re-parsing an unchanged save returns
-# the same numbers at full cost. This bound exists for the half of the
-# document that doesn't come from the save (who is online, uptime), which
-# does keep changing while the save sits still.
-WEB_LIVE_MAX_AGE = setting("web", "live_max_age_seconds", 120)
+# A backstop, not the mechanism: a refresh is skipped whenever status.json
+# is already newer than Level.sav, because re-parsing an unchanged save
+# returns the same numbers at full cost. The half of the dashboard that
+# isn't in the save — who is online, uptime — doesn't wait for any of this;
+# the page reads it from /live.json, which costs a REST call. So this only
+# has to bound how old a document can get when nothing else has triggered a
+# parse at all.
+WEB_LIVE_MAX_AGE = setting("web", "live_max_age_seconds", 600)
 
 
 def ensure_dirs() -> None:

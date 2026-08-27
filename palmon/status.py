@@ -11,14 +11,13 @@ import json
 import fcntl
 from datetime import datetime
 
-from .config import LEVEL_SAV, LOCK_FILE, OUTPUT_JSON, ensure_dirs
+from .config import LEVEL_SAV, LOCK_FILE, OUTPUT_JSON
 from .history import (
     append_food_history,
     append_memory_history,
     append_resource_history,
-    load_cache,
-    save_cache,
 )
+from .live import server_live
 from .metrics import (
     classify_base_role,
     compute_facility_idle,
@@ -38,12 +37,9 @@ log = logging.getLogger(__name__)
 def build_status_json(parsed: dict, metrics: dict | None) -> dict:
     """Build the final status.json output."""
 
-    # Server metrics (from REST API)
-    server_online = metrics is not None
-    server_fps = round(metrics.get("serverfps", 60.0), 1) if metrics else 60.0
-    uptime = metrics.get("uptime", 0) if metrics else 0
-    online_players = metrics.get("currentplayernum", 0) if metrics else 0
-    max_players = metrics.get("maxplayernum", 8) if metrics else 8
+    # Everything the REST API answers for, in one place — see live.py.
+    live = server_live(metrics)
+    online_players = live["online_players"]
 
     container_pals = parsed["container_pals"]
 
@@ -70,41 +66,6 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
     warning_count = sum(1 for p in all_base_pals if p["status_code"] == "WARNING")
     danger_count = sum(1 for p in all_base_pals if p["status_code"] == "DANGER")
 
-    # Fetch additional data from REST API
-    server_info = fetch_rest_api("info")
-    players_data = fetch_rest_api("players")
-
-    server_name = server_info.get("servername", "") if server_info else ""
-    server_version = server_info.get("version", "") if server_info else ""
-    game_days = metrics.get("days", 0) if metrics else 0
-
-    # If server offline, try loading cached game_days. Also track when the
-    # server was last seen online, so an offline run can report *when* it
-    # went down instead of just "offline" — anchored to the last confirmed
-    # online timestamp (accurate to within one update interval).
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cache = load_cache()
-    offline_since = None
-    if metrics:
-        save_cache({
-            "game_days": game_days,
-            "server_name": server_name,
-            "server_version": server_version,
-            "last_online_at": now_str,
-        })
-    else:
-        game_days = game_days or cache.get("game_days", 0)
-        server_name = server_name or cache.get("server_name", "")
-        server_version = server_version or cache.get("server_version", "")
-        offline_since = cache.get("offline_since") or cache.get("last_online_at") or now_str
-        save_cache({
-            "game_days": game_days,
-            "server_name": server_name,
-            "server_version": server_version,
-            "last_online_at": cache.get("last_online_at", now_str),
-            "offline_since": offline_since,
-        })
-
     # Memory info
     mem = get_memory_info()
     # Appended (and persisted to MEMORY_HISTORY_FILE) for its own sake, not
@@ -116,21 +77,6 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
     # chart is actually open.
     append_memory_history(mem, online_players)
 
-    # Format uptime
-    h, rem = divmod(uptime, 3600)
-    m, s = divmod(rem, 60)
-    uptime_fmt = f"{h}h {m}m" if h else f"{m}m {s}s"
-
-    # Online player list
-    online_list = []
-    if players_data and "players" in players_data:
-        for pl in players_data["players"]:
-            online_list.append({
-                "name": pl.get("name", "?"),
-                "level": pl.get("level", 0),
-                "ping": round(pl.get("ping", 0), 0),
-            })
-
     # All known players (online and offline), each with their current
     # party (Otomo) pals. REST API's "players" endpoint only lists who's
     # online right now, keyed by playerId in the same hyphen-free-hex form
@@ -138,9 +84,7 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
     # here (name/level for the online case already come from the save
     # itself, which is available whether or not the server's REST API is
     # reachable).
-    online_uids = {
-        pl.get("playerId", "").upper() for pl in (players_data or {}).get("players", [])
-    }
+    online_uids = set(live["online_uids"])
     all_players = []
     for p in parsed.get("players", []):
         file_info = read_player_file(p["uid"])
@@ -150,6 +94,9 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
             pal.pop("slot_index", None)
             pal.pop("instance_id", None)
         all_players.append({
+            # The page re-marks online/offline from /live.json between
+            # parses, and matches on this rather than on a display name.
+            "uid": p["uid"],
             "name": p["name"],
             "level": p["level"],
             "online": p["uid"] in online_uids,
@@ -204,14 +151,7 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
     # the dashboard can build one panel per base instead of hardcoding two.
     result = {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "server_online": server_online,
-        "server_name": server_name,
-        "server_version": server_version,
-        "uptime_display": uptime_fmt,
-        "offline_since": offline_since,
-        "game_days": game_days,
-        "online_players": online_players,
-        "max_players": max_players,
+        **{k: v for k, v in live.items() if k != "online_uids"},
         "all_players": all_players,
         "memory": mem,
         "total_all_pals": total_all_pals,
@@ -319,13 +259,14 @@ def _write_stale_status(stale: dict, metrics: "dict | None", error: str) -> dict
     rather than mistaking it for a live read.
     """
     mem = get_memory_info()
-    online_players = metrics.get("currentplayernum", 0) if metrics else 0
-    append_memory_history(mem, online_players)
+    live = server_live(metrics)
+    append_memory_history(mem, live["online_players"])
     result = dict(stale)
+    online_uids = set(live.pop("online_uids"))
+    for player in result.get("all_players", []):
+        player["online"] = player.get("uid") in online_uids
     result.update({
-        "server_online": metrics is not None,
-        "online_players": online_players,
-        "max_players": metrics.get("maxplayernum", 8) if metrics else 8,
+        **live,
         "memory": mem,
         "data_stale": True,
         "data_stale_since": stale.get("updated_at"),
@@ -343,16 +284,10 @@ def _write_blank_status(metrics: "dict | None", error: str) -> dict:
     so the frontend has something well-formed to render.
     """
     mem = get_memory_info()
-    online_players = metrics.get("currentplayernum", 0) if metrics else 0
-    append_memory_history(mem, online_players)
+    live = server_live(metrics)
+    live.pop("online_uids")
+    append_memory_history(mem, live["online_players"])
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cache = load_cache()
-    offline_since = None
-    if metrics:
-        save_cache({**cache, "last_online_at": now_str})
-    else:
-        offline_since = cache.get("offline_since") or cache.get("last_online_at") or now_str
-        save_cache({**cache, "last_online_at": cache.get("last_online_at", now_str), "offline_since": offline_since})
     # Which bases to blank: the last status.json's own list if there is one,
     # otherwise the two anchor bases. Nothing here has parsed a save, so
     # there is no other way to know how many bases exist — and a base
@@ -366,10 +301,7 @@ def _write_blank_status(metrics: "dict | None", error: str) -> dict:
 
     result = {
         "updated_at": now_str,
-        "server_online": metrics is not None,
-        "offline_since": offline_since,
-        "online_players": online_players,
-        "max_players": metrics.get("maxplayernum", 8) if metrics else 8,
+        **live,
         "memory": mem,
         "bases": base_keys,
         "total_base_pals": 0,

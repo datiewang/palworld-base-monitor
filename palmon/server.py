@@ -15,12 +15,15 @@ a long-running server never gives back — this way the memory belongs to a
 process that exits, and the server itself stays at around 20MB.
 """
 
+import json
 import logging
 import os
 import subprocess
 import sys
 import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+from .live import server_live
 
 from .config import (
     CONFIG_FILE,
@@ -45,6 +48,11 @@ STATE_FILES = {
     "/food_history.json",
 }
 STATE_PREFIXES = ("/data/",)
+
+# Answered from the REST API on the spot rather than from any file. It is
+# three calls and about ten milliseconds, so an open dashboard can poll it
+# every minute without ever paying for a save parse — see live.py.
+LIVE_PATH = "/live.json"
 
 # A parse takes ~3s; this only has to be long enough that a slow one isn't
 # killed halfway through leaving the lock held.
@@ -101,11 +109,28 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return super().translate_path(path)
 
     def do_GET(self):
-        if (WEB_LIVE_REGENERATE
-                and self.path.split("?", 1)[0] == "/status.json"
-                and _needs_refresh()):
+        path = self.path.split("?", 1)[0]
+        if path == LIVE_PATH:
+            self.send_live()
+            return
+        if WEB_LIVE_REGENERATE and path == "/status.json" and _needs_refresh():
             _run_update()
         super().do_GET()
+
+    def send_live(self):
+        try:
+            body = json.dumps(server_live(), ensure_ascii=False).encode("utf-8")
+        except Exception as e:
+            log.warning("live query failed: %s", e)
+            self.send_error(503, "live data unavailable")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        # Always a fresh read; a cached one would defeat the point.
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, fmt, *args):
         pass

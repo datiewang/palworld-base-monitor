@@ -3758,11 +3758,52 @@
       el.style.display = '';
     }
 
+    // The page reads two documents, because its two halves move at
+    // completely different speeds. status.json is the save: pals, stock,
+    // facilities, trends — it can only change when the server rewrites
+    // Level.sav, every few minutes, and producing it costs a ~3s parse.
+    // live.json is the server talking about itself: online/offline, who is
+    // logged in, uptime, the day count — it changes any second and costs a
+    // REST call (~40ms). Fetching them together and overlaying the second
+    // on the first is what lets this poll every minute without the parse.
+    async function fetchLive() {
+      try {
+        const r = await fetch('live.json?t=' + Date.now());
+        return r.ok ? await r.json() : null;
+      } catch (e) {
+        // The dashboard is still perfectly usable on status.json alone —
+        // its server fields are just as old as the last parse.
+        return null;
+      }
+    }
+
+    function mergeLive(d, live) {
+      if (!live) return d;
+      const { online_uids, ...fields } = live;
+      Object.assign(d, fields);
+      const online = new Set(online_uids || []);
+      for (const p of d.all_players || []) {
+        // Older status.json documents (written before uid rode along) have
+        // nothing to match on; leave their own flag alone rather than
+        // marking everyone offline.
+        if (p.uid) p.online = online.has(p.uid);
+      }
+      // Same order the backend writes: online first, then most recently
+      // seen. Re-applied here because a login between two parses changes
+      // who belongs at the top.
+      (d.all_players || []).sort((a, b) => (b.last_online || '').localeCompare(a.last_online || ''));
+      (d.all_players || []).sort((a, b) => (a.online ? 0 : 1) - (b.online ? 0 : 1));
+      return d;
+    }
+
     async function fetchData() {
       try {
-        const resp = await fetch('status.json?t=' + Date.now());
+        const [resp, live] = await Promise.all([
+          fetch('status.json?t=' + Date.now()),
+          fetchLive(),
+        ]);
         if (!resp.ok) { markFetchFailed(`HTTP ${resp.status}`); return; }
-        const d = await resp.json();
+        const d = mergeLive(await resp.json(), live);
         lastData = d;
         // Before anything renders: make sure there is a panel for every
         // base this poll reported (a no-op unless the set changed).
@@ -3899,10 +3940,13 @@
     applySeriesToggles();
 
     loadNameData().then(fetchData);
-    // 60s, not 15s: palmon/server.py recomputes status.json live on
-    // every GET — a full Level.sav parse, measured ~1.5s — so each open tab
-    // was costing four complete save parses a minute. Nothing on this page
-    // moves fast enough to need a 15-second refresh.
+    // 60s, not 15s. Most of these polls are answered from the file in well
+    // under a millisecond — palmon/server.py only re-parses the save when
+    // the save itself has moved on (it is rewritten every few minutes) or
+    // when status.json passes [web] live_max_age_seconds. But nothing on
+    // this page moves fast enough to need a 15-second refresh either, and a
+    // shorter interval would just raise the share of polls that pay for a
+    // full parse.
     setInterval(fetchData, 60000);
   </script>
 </body>
