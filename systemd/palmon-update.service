@@ -1,0 +1,12 @@
+# One parse of the save, writing status.json. Paired with palmon-update.timer.
+#
+# With [web] live_regenerate on (the default) the dashboard refreshes itself
+# on every page load and this timer only matters while nobody has the page
+# open — which is exactly when the history files would otherwise have gaps.
+[Unit]
+Description=Update Palworld base camp data
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/palworld-base-monitor
+ExecStart=/usr/bin/python3 %h/palworld-base-monitor/palmon.py update

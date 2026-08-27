@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "palmon"
+version = "1.0.0"
+description = "Base camp dashboard for a Palworld dedicated server, read from Level.sav"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["palworld-save-tools>=0.24.0"]
+
+[project.scripts]
+palmon = "palmon.cli:main"
+
+[tool.setuptools]
+packages = ["palmon"]

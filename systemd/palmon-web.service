@@ -1,0 +1,20 @@
+# The dashboard itself. Install with:
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/palmon-*.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now palmon-web.service palmon-update.timer
+#
+# Adjust WorkingDirectory if the checkout is not at ~/palworld-base-monitor.
+[Unit]
+Description=Palworld base camp dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/palworld-base-monitor
+ExecStart=/usr/bin/python3 %h/palworld-base-monitor/palmon.py serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,65 @@
+# palmon configuration. Copy to ~/.config/palmon/config.toml and edit.
+#
+# Every setting here has a working default — a fresh install usually needs
+# nothing but the REST API password. Any of them can also be set through the
+# environment as PALMON_<SECTION>_<KEY>, e.g. PALMON_WEB_PORT=9000.
+
+[server]
+# Left empty, the newest Level.sav under the usual dedicated-server install
+# paths is used. Set it when several worlds exist, or when the server lives
+# somewhere unusual.
+# save_path = "/home/steam/PalServer/Pal/Saved/SaveGames/0/<world id>/Level.sav"
+
+# The server's own REST API — RESTAPIEnabled=True in PalWorldSettings.ini.
+# The password is that file's AdminPassword. Without it the dashboard still
+# works, but the player list, the server name and uptime stay empty.
+rest_api_url = "http://127.0.0.1:8212/v1/api"
+rest_api_user = "admin"
+rest_api_password = ""
+
+[bases]
+# Which camps are yours, and which one is base1.
+#
+# BaseCampSaveData lists every camp in the world, other guilds' included, so
+# one guild has to be picked. With nothing set here the guild owning the most
+# camps is taken as yours and its camps are numbered by camp id — right for
+# almost every server.
+#
+# Anchors matter once history has accumulated: each worker-container id
+# listed claims base1, base2, ... in order, which keeps a camp's trend data
+# attached to that camp no matter what order the save lists camps in. A camp
+# that is dismantled and rebuilt gets a new container id, so its anchor has
+# to be updated then. `palmon update` prints the ids it found.
+# anchors = ["11111111-2222-3333-4444-555555555555", "66666666-7777-8888-9999-000000000000"]
+# guild_id = ""
+
+[paths]
+# state_dir holds everything the dashboard writes: status.json, the history
+# files, the lock, and the game data downloaded by `palmon fetch-data`.
+# It is the directory worth backing up; the checkout is disposable.
+# state_dir = "~/.local/share/palmon"
+# data_dir  = "~/.local/share/palmon/data"
+# web_dir   = "<repository>/web"
+
+[data]
+# Language for every item / pal / building name on the page. Any directory
+# under palworld-save-pal's l10n tree: en, ja, ko, de, es, fr, it, pl, pt-BR,
+# ru, th, tr, vi, zh-Hans, zh-Hant, id.
+# Note that the dashboard's own labels are Chinese regardless.
+language = "zh-Hans"
+
+[web]
+host = "0.0.0.0"
+port = 8088
+# With this on, GET /status.json re-parses the save before answering, so the
+# page is never stale and each load costs about a second. Turn it off to
+# serve whatever the last run wrote and let the timer keep it fresh.
+live_regenerate = true
+
+[history]
+# How much trend data to keep. A resource snapshot is ~8KB (500 of them at
+# the 240s floor is >33 hours); a memory point is a few hundred bytes.
+memory_max_points = 2000
+resource_min_interval_seconds = 240
+resource_max_points = 500
+food_max_points = 2000

@@ -1,0 +1,2 @@
+# Python 3.11+ is required (tomllib, and the type syntax used throughout).
+palworld-save-tools>=0.24.0

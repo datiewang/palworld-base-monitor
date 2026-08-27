@@ -1,0 +1,3909 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Palworld 据点监控</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Light palette (default) */
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-raised: #eef2f7;
+      --border: rgba(15,23,42,0.09);
+      --border-hover: rgba(15,23,42,0.18);
+      --text: #0f172a;
+      --text-dim: #52627a;
+      --text-faint: #8b98ac;
+      --cyan: #0284c7;
+      --green: #059669;
+      --amber: #b45309;
+      --rose: #be123c;
+      --indigo: #4338ca;
+      --overlay-hairline: rgba(15,23,42,0.06);
+      --overlay-soft: rgba(15,23,42,0.03);
+      --overlay-hover: rgba(15,23,42,0.05);
+      --overlay-track: rgba(15,23,42,0.08);
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'Inter', system-ui, sans-serif;
+    }
+    :root[data-theme="dark"] {
+      --bg: #0b0f19;
+      --surface: #131926;
+      --surface-raised: #1a2234;
+      --border: rgba(255,255,255,0.07);
+      --border-hover: rgba(255,255,255,0.14);
+      --text: #e2e8f0;
+      --text-dim: #7a8ba8;
+      --text-faint: #4a5c78;
+      --cyan: #38bdf8;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --indigo: #818cf8;
+      --overlay-hairline: rgba(255,255,255,0.03);
+      --overlay-soft: rgba(255,255,255,0.02);
+      --overlay-hover: rgba(255,255,255,0.04);
+      --overlay-track: rgba(255,255,255,0.06);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ─── Layout Shell ─── */
+    /* 1200px, not wider: every row on this page is a short label paired
+       with a short number, and stretching those pairs across a 1680px
+       desktop put the value nearer the *next* label than its own. The
+       measure is the readability constraint here, not the screen. */
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    /* ─── Top Bar ─── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .topbar-left h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .server-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--green) 12%, transparent);
+      color: var(--green);
+      border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
+    }
+    .server-pill.offline {
+      background: color-mix(in srgb, var(--rose) 12%, transparent);
+      color: var(--rose);
+      border-color: color-mix(in srgb, var(--rose) 25%, transparent);
+    }
+    .server-pill .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor;
+    }
+    .topbar-right-group {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .topbar-right {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      font-family: var(--mono);
+    }
+    .theme-toggle {
+      font-size: 0.95rem;
+      line-height: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.5rem;
+      cursor: pointer;
+      color: var(--text-dim);
+    }
+    .theme-toggle:hover { background: var(--overlay-hover); color: var(--text); }
+    .server-uptime {
+      font-size: 0.75rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+    .stale-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--amber);
+      background: color-mix(in srgb, var(--amber) 12%, transparent);
+      border-radius: 6px;
+      padding: 0.15rem 0.55rem;
+    }
+    /* A failed poll is a harder failure than stale save data — the whole
+       page is frozen, not just the base numbers — so it reads in rose. */
+    .stale-badge.fetch-fail {
+      color: var(--rose);
+      background: color-mix(in srgb, var(--rose) 12%, transparent);
+    }
+
+    /* ─── Stats Strip ─── */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.5rem;
+    }
+    .stat-cell {
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%),
+        var(--surface);
+      border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+      border-radius: 10px;
+      padding: 0.7rem 0.9rem 0.7rem 1rem;
+    }
+    /* Colour rail down the left edge, matching the number in the cell. */
+    .stat-cell::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--accent);
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+    .stat-value {
+      font-size: 1.4rem;
+      font-weight: 800;
+      font-family: var(--mono);
+      margin-top: 0.15rem;
+      line-height: 1.2;
+    }
+    .stat-sub {
+      font-size: 0.7rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+
+    /* ─── Memory Chart ─── */
+    .chart-meta {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0.85rem 0;
+      font-size: 0.7rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.9rem;
+      padding: 0.6rem 0.85rem 0;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+    .chart-legend .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      appearance: none;
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 0.15rem 0.5rem;
+      cursor: pointer;
+    }
+    .chart-legend .legend-item:hover { border-color: var(--border-hover); }
+    /* A switched-off series keeps its current reading legible — the number
+       is still true, it's just not drawn — so this dims rather than hides,
+       and hollows out the swatch to say "not on the chart". */
+    .chart-legend .legend-item.off { opacity: 0.5; }
+    .chart-legend .legend-item.off .legend-dot {
+      background: transparent !important;
+      box-shadow: inset 0 0 0 2px var(--text-faint);
+    }
+    .chart-legend .legend-item.off b { color: var(--text-faint); }
+    .chart-legend .legend-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      flex: none;
+    }
+    .chart-legend b {
+      color: var(--text);
+      font-family: var(--mono);
+      font-weight: 700;
+    }
+    .chart-wrap {
+      position: relative;
+      padding: 0.35rem 0.75rem 0.6rem;
+    }
+    .chart-svg {
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1000 / 220;
+      display: block;
+      overflow: visible;
+    }
+    .chart-tooltip {
+      position: absolute;
+      transform: translate(-50%, -115%);
+      background: var(--surface-raised);
+      border: 1px solid var(--border-hover);
+      border-radius: 8px;
+      padding: 0.4rem 0.65rem;
+      font-family: var(--mono);
+      pointer-events: none;
+      white-space: nowrap;
+      display: none;
+      z-index: 5;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .mt-time { display: block; font-size: 0.65rem; color: var(--text-faint); margin-bottom: 0.2rem; }
+    .mt-val { display: block; font-size: 0.75rem; font-weight: 700; line-height: 1.5; }
+
+    /* ─── Tabs ─── */
+    /* Sticky: 据点详情 is several screens tall, and without this you have to
+       scroll all the way back up just to switch tabs. */
+    .tab-nav {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--bg);
+    }
+    .tab-btn {
+      appearance: none;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 0.65rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+    .tab-badge {
+      display: inline-block;
+      margin-left: 0.3rem;
+      padding: 0.05rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-family: var(--mono);
+      background: color-mix(in srgb, var(--rose) 16%, transparent);
+      color: var(--rose);
+      vertical-align: 1px;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ─── Base Panel Layout ─── */
+    /* minmax(0, 1fr), not 1fr: a grid item's automatic minimum size is its
+       min-content width, so the 1fr track used to blow out to whatever the
+       widest roster needed and push the whole page sideways on a narrow
+       window. It only stayed hidden because the roster's wrapper scrolls;
+       the moment it hands that overflow back to pin its header, the blowout
+       would be real. */
+    .bases-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+
+    /* ─── Base Panel ─── */
+    /* Each base panel is tinted with its own colour — the accent rail on
+       top, the header wash, the badge and every section marker — so a
+       glance at any part of a long panel says which base you're reading
+       without scrolling back to the title. */
+    .base-panel {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      /* clip, not hidden: both keep ::before's accent bar inside the rounded
+         corners, but `hidden` makes this a scroll container, and a scroll
+         container captures every position:sticky descendant — the roster
+         header below would then stick to this panel instead of the page. */
+      overflow: clip;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+    }
+    .base-panel::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--base-color), transparent 65%);
+    }
+    .base-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.85rem 1.15rem 0.8rem;
+      background: linear-gradient(90deg,
+        color-mix(in srgb, var(--base-color) 14%, transparent),
+        color-mix(in srgb, var(--base-color) 3%, transparent) 45%,
+        transparent);
+      border-bottom: 1px solid var(--border);
+    }
+    .base-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.5rem;
+    }
+    /* Keeps "🏯 3号据点" on one line when the header wraps on a phone —
+       it used to break between the icon and the name. */
+    .base-title-name { white-space: nowrap; }
+    .base-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--base-color) 14%, transparent);
+      color: var(--base-color);
+    }
+    .base-food-inline {
+      font-size: 0.72rem;
+      font-weight: 400;
+      font-family: var(--mono);
+      color: var(--text-faint);
+      white-space: nowrap;
+    }
+    .base-food-inline.low { color: var(--amber); font-weight: 600; }
+    .base-food-inline.critical {
+      color: var(--rose);
+      font-weight: 700;
+      background: color-mix(in srgb, var(--rose) 10%, transparent);
+      border-radius: 6px;
+      padding: 0.1rem 0.45rem;
+    }
+    /* What the base is for (backend-classified) — deliberately quieter
+       than .base-badge: it labels the panel, it isn't a live number. */
+    .base-role {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--text-faint) 12%, transparent);
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .base-role.stalled { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+    .role-tag {
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--text-faint);
+    }
+    /* One base at a time — .base-tab-btn picks which. Hidden rather than
+       not rendered: every panel stays in the DOM and keeps being filled in
+       on each poll, so switching is instant and never shows stale data. */
+    .base-panel { display: none; }
+    .base-panel.active { display: block; }
+
+    /* ─── Base switcher ─── */
+    /* Sticky directly under .tab-nav, so the switcher stays reachable
+       part-way down a panel that runs several screens. The offset is that
+       bar's measured height (48.78px at the default font size; .tab-nav
+       never wraps, so it doesn't vary) rounded *down* — a rounding that
+       overlaps by a fraction of a pixel is invisible, one that leaves a
+       gap shows a sliver of scrolling content between the two bars. */
+    .base-tab-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      position: sticky;
+      top: 48px;
+      z-index: 19;
+      background: var(--bg);
+      padding: 0.15rem 0 0.85rem;
+    }
+    .base-tab-btn {
+      appearance: none;
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.85rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .base-tab-btn:hover { border-color: var(--border-hover); color: var(--text); }
+    /* Each tab carries its base's own colour (the same one its food chart
+       is drawn in, passed in as --base-color), so the selected tab and the
+       panel below it read as the same thing. */
+    .base-tab-btn.active {
+      color: var(--base-color);
+      border-color: var(--base-color);
+      background: color-mix(in srgb, var(--base-color) 12%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--base-color) 13%, transparent),
+                  0 4px 12px -6px var(--base-color);
+    }
+    .base-tab-count {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--text-faint);
+    }
+    .base-tab-btn.active .base-tab-count { color: var(--base-color); }
+
+    /* ─── Pal Table ─── */
+    .pal-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .pal-table th {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .pal-table th:last-child { text-align: right; }
+    .pal-table td {
+      padding: 0.45rem 0.75rem;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--overlay-hairline);
+      vertical-align: middle;
+    }
+    .pal-table tr:last-child td { border-bottom: none; }
+    .pal-table tr:hover td { background: var(--overlay-soft); }
+
+    .pal-name-cell {
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pal-type {
+      font-size: 0.68rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+    .job-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .job-ratio {
+      font-size: 0.68rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+
+    /* Work-suitability filter above each base's pal table. Each chip
+       names the suitability, how many pals at this base have it, and
+       which of this base's placed facilities it staffs — so picking a
+       chip answers "who can run that facility" directly. */
+    .pal-filter {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      padding: 0 0 0.6rem;
+    }
+    .pal-filter-chip {
+      appearance: none;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.3rem;
+      max-width: 100%;
+    }
+    .pal-filter-chip:hover { border-color: var(--border-hover); color: var(--text); }
+    .pal-filter-chip.active {
+      background: color-mix(in srgb, var(--base-color, var(--cyan)) 12%, transparent);
+      border-color: var(--base-color, var(--cyan));
+      color: var(--base-color, var(--cyan));
+    }
+    .pfc-count { font-family: var(--mono); font-size: 0.68rem; opacity: 0.75; }
+
+    /* Pal roster / work-suitability matrix. One narrow numeric column per
+       suitability makes the table wider than a half-width base panel at
+       most window sizes, so it scrolls inside its own container rather
+       than pushing the page sideways. */
+    .pal-table-wrap { overflow-x: auto; }
+    /* The roster is the tallest thing on the page (~900px, well past a
+       screen), so its header is pinned while you scroll past it. That only
+       works when this wrapper is *not* a scroll container: a sticky header
+       inside a horizontally scrolling box anchors to that box rather than to
+       the page, and — since the box never scrolls vertically — would simply
+       sit shoved 97px down on top of the first rows. So the wrapper hands
+       back its overflow whenever the matrix fits (see syncPalHeadPin), and
+       takes it again, losing the pin, on windows too narrow for it. */
+    .pal-table-wrap.pinned-head { overflow-x: visible; }
+    /* 97px = .tab-nav (48.78) + .base-tab-nav (49.77), rounded down so the
+       header tucks a fraction *under* the base switcher rather than leaving
+       a sliver of scrolling rows between them. Both bars are single-row at
+       the widths where pinning is on, so the sum doesn't vary. */
+    .pal-table-wrap.pinned-head thead th {
+      position: sticky;
+      top: 97px;
+      z-index: 5;
+      /* Opaque, or the rows slide visibly through the header. The panel's
+         own colour, since that is what the header sits on. */
+      background: var(--surface);
+      /* A collapsed table's borders belong to the table, not the cell, so
+         th's border-bottom scrolls away and leaves the pinned header with no
+         edge against the rows moving under it. An inset shadow paints inside
+         the cell and travels with it. */
+      box-shadow: inset 0 -1px 0 var(--border);
+    }
+    /* max-content, not 100%: with a dozen numeric columns added, a
+       width:100% table squeezes the name/job columns into one-character-
+       per-line vertical text instead of overflowing. Sizing to content and
+       letting the wrapper scroll keeps every column legible. */
+    .pal-matrix { width: max-content; min-width: 100%; }
+    .pal-matrix .pal-name-cell, .pal-matrix .job-cell { white-space: nowrap; }
+    /* 岗位 holds facility names, and the roster is wide enough that a
+       right-aligned header sat inches away from the left-aligned values
+       under it. */
+    .pal-matrix th:last-child { text-align: left; }
+    .pal-matrix td, .pal-matrix th { padding-left: 0.5rem; padding-right: 0.5rem; }
+    /* The matrix is already wide; the SAN bar's 140px is mostly empty
+       track, and the number beside it carries the same reading. */
+    .pal-matrix .san-cell { min-width: 0; gap: 0.35rem; }
+    .pal-matrix .san-track { width: 42px; flex: none; }
+    .pal-matrix th.ws-col, .pal-matrix td.ws-col {
+      text-align: center;
+      padding-left: 0.3rem;
+      padding-right: 0.3rem;
+      font-family: var(--mono);
+      white-space: nowrap;
+    }
+    .pal-matrix th.ws-col {
+      font-size: 0.63rem;
+      writing-mode: horizontal-tb;
+    }
+    .pal-matrix td.ws-col.zero { color: var(--border-hover); }
+    .pal-matrix .ws-col.hl {
+      background: color-mix(in srgb, var(--base-color, var(--cyan)) 10%, transparent);
+      color: var(--base-color, var(--cyan));
+    }
+    /* Zebra rows: the roster is fifteen columns wide, and following one
+       pal from its name to its 岗位 across a hairline-separated grid meant
+       counting rows. Kept below the hover tint so hover still reads. */
+    .pal-matrix tbody tr:nth-child(even) td { background: var(--overlay-soft); }
+    .pal-matrix tbody tr:hover td { background: var(--overlay-hover); }
+    .pal-matrix tfoot td {
+      border-top: 1px solid var(--border-hover);
+      border-bottom: none;
+      background: var(--surface-raised);
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .pal-matrix tfoot td.short { color: var(--rose); }
+
+    .lv-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--text-dim);
+      min-width: 2.2rem;
+      text-align: center;
+    }
+
+    /* SAN inline bar */
+    .san-cell {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 140px;
+    }
+    .san-track {
+      flex: 1;
+      height: 6px;
+      background: var(--overlay-track);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .san-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+      background-image: linear-gradient(180deg, rgba(255,255,255,0.3), rgba(255,255,255,0));
+    }
+    .san-num {
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: 0.78rem;
+      min-width: 2.6rem;
+      text-align: right;
+    }
+
+    .status-tag {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .status-tag.OK { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
+    .status-tag.WARNING { background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--amber); }
+    .status-tag.DANGER { background: color-mix(in srgb, var(--rose) 14%, transparent); color: var(--rose); }
+    /* Status now rides in the pal-name cell rather than its own column. */
+    .pal-name-cell .status-tag { font-size: 0.62rem; padding: 0.1rem 0.35rem; }
+    /* A cell whose value was deliberately suppressed, not missing. */
+    .muted-cell { color: var(--text-faint); }
+
+    .side-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .side-card-header {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text);
+      padding: 0.7rem 0.95rem;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+    }
+    .side-card-body { padding: 0.5rem 0; }
+
+    /* Player list */
+    .player-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.82rem;
+    }
+    .player-row:hover { background: var(--overlay-soft); }
+    .player-name {
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .player-name .online-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--green);
+      flex: none;
+    }
+    .player-name .online-dot.offline { background: var(--text-faint); }
+    .player-meta {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+    .player-row { flex-direction: column; align-items: stretch; gap: 0.15rem; }
+    .player-row .player-sub {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-faint);
+      font-family: var(--mono);
+      padding-left: 0.85rem;
+    }
+    .player-row.offline .player-name { color: var(--text-dim); font-weight: 500; }
+
+    /* Sick/low-SAN pals: one wrapping chip each rather than a full-width
+       row each — at 25+ alerts the row layout was most of the tab's
+       height for what is really just a list of names. */
+    .alert-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding: 0.6rem 0.85rem 0.8rem;
+    }
+    .alert-chip {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.3rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .alert-chip.DANGER { background: color-mix(in srgb, var(--rose) 12%, transparent); color: var(--rose); }
+    .alert-chip.WARNING { background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--amber); }
+    .alert-chip .ac-base { font-family: var(--mono); font-size: 0.68rem; opacity: 0.7; }
+    .alert-chip .ac-name { color: var(--text); font-weight: 600; }
+
+    .empty-state {
+      padding: 1rem 0.85rem;
+      font-size: 0.8rem;
+      color: var(--text-faint);
+      text-align: center;
+    }
+
+    /* ─── Base Economy (facilities / storage / gaps) ─── */
+    .econ-section {
+      border-top: 1px solid var(--border);
+      padding: 0.9rem 1.15rem 1rem;
+    }
+    /* Two narrow sections (产出速率 / 电力) share one row on a desktop
+       instead of each running the full width for a six-character label and
+       a four-digit number. They stack again below 900px. */
+    .econ-row { display: grid; grid-template-columns: 1fr; }
+    @media (min-width: 900px) {
+      .econ-row { grid-template-columns: 1fr 1fr; }
+      .econ-row > .econ-section + .econ-section { border-left: 1px solid var(--border); }
+    }
+    /* Section titles inside a base panel. Uppercase + letter-spacing (the
+       usual small-caps label treatment) does nothing to Latin-free text
+       except space it out, so these are sized and coloured up instead —
+       they were the same weight as the data they introduce. */
+    .econ-heading {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    /* A short colour rail in the base's own colour, so section titles line
+       up down the left edge of the panel and read as one family. */
+    .econ-heading::before {
+      content: '';
+      flex: none;
+      width: 3px;
+      height: 0.95em;
+      border-radius: 2px;
+      background: var(--base-color, var(--cyan));
+    }
+    /* space-between put a heading's own subtitle (共 35 座, 每小时) in the
+       middle of an empty row, detached from the title it belongs to. The
+       control is the only thing that goes to the right edge. */
+    .econ-heading .econ-toggle-btn { margin-left: auto; }
+    .facility-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .collapsible.collapsed { display: none; }
+    .facility-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.72rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      background: var(--overlay-hover);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .facility-chip b { color: var(--text); font-family: var(--mono); }
+    .facility-chip.highlight {
+      background: color-mix(in srgb, var(--base-color, var(--cyan)) 10%, transparent);
+      border-color: color-mix(in srgb, var(--base-color, var(--cyan)) 28%, transparent);
+      color: var(--base-color, var(--cyan));
+    }
+    .facility-chip.highlight b { color: var(--base-color, var(--cyan)); }
+
+    /* 据点物资 holds two different kinds of thing — what the base pulls
+       out of the ground and what it makes from that — and as two bare
+       lists under two small captions they read as one long run of items.
+       Each is its own bordered block with its own accent colour, so the
+       boundary is a wall rather than a line of small text. */
+    .res-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .res-group + .res-group { margin-top: 0.7rem; }
+    .res-group.raw { --tone: var(--amber); }
+    .res-group.proc { --tone: var(--indigo); }
+    .res-group-head {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem 0.7rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      border-left: 3px solid var(--tone);
+      background: linear-gradient(90deg,
+        color-mix(in srgb, var(--tone) 13%, transparent),
+        color-mix(in srgb, var(--tone) 2%, transparent) 55%,
+        transparent);
+    }
+    .res-group-icon { font-size: 0.9rem; line-height: 1; }
+    .res-group-title { color: var(--tone); }
+    .res-group-sub {
+      font-size: 0.68rem;
+      font-weight: 400;
+      color: var(--text-faint);
+    }
+    .res-group-count {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.7rem;
+      color: var(--tone);
+      background: color-mix(in srgb, var(--tone) 12%, transparent);
+      border-radius: 999px;
+      padding: 0.05rem 0.45rem;
+    }
+    .res-group-head .econ-toggle-btn { margin-left: auto; }
+
+    /* Separators are drawn by the tiles themselves, not by a gap letting a
+       darker container background through: the last row is rarely full, and
+       a container-drawn grid painted the leftover cells as a grey slab. The
+       negative margins tuck the trailing column/row lines under the group's
+       own border instead of doubling it. */
+    .resource-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+      margin: 0 -1px -1px 0;
+    }
+    /* One tile per item: name, count, and a bar showing the count against
+       the biggest stock in this group. The bar is what makes a wall of
+       numbers scannable — "what do I have a lot of" is answered by shape
+       before any digit is read. Tiles are separated by the grid's 1px
+       background showing through, so no two items can visually merge. */
+    .res-tile {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem 0.6rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      min-width: 0;
+    }
+    .res-tile:hover { background: var(--overlay-soft); }
+    .res-tile-top {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+    .res-ico { font-size: 0.75rem; flex: none; line-height: 1; }
+    .resource-name {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .res-tile-num { display: flex; align-items: baseline; gap: 0.35rem; }
+    .resource-count {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .resource-pending {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--amber);
+      background: color-mix(in srgb, var(--amber) 12%, transparent);
+      border-radius: 4px;
+      padding: 0 0.25rem;
+      white-space: nowrap;
+    }
+    .res-bar {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--overlay-track);
+      overflow: hidden;
+    }
+    .res-bar i {
+      display: block;
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg,
+        color-mix(in srgb, var(--tone) 45%, transparent), var(--tone));
+    }
+
+    .gap-window { color: var(--text-faint); font-size: 0.68rem; font-family: var(--mono); }
+
+    #idle-content { padding: 0.55rem 0.85rem 0.75rem; }
+
+    .proposal-base-heading {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 0.9rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border-hover);
+    }
+    .proposal-base-heading:first-child { margin-top: 0; }
+    .base-collapse-arrow {
+      display: inline-block;
+      font-size: 0.65rem;
+      color: var(--text-faint);
+      transition: transform 0.15s;
+    }
+    .base-collapse-arrow.collapsed { transform: rotate(-90deg); }
+    .proposal-subheading {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+    }
+    /* Capped: these are 3-4 short columns, and at full page width the
+       status ended up an inch from the facility it describes. */
+    .proposal-table { width: 100%; max-width: 880px; border-collapse: collapse; }
+    .proposal-table th {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-faint);
+      text-align: left;
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .proposal-table td {
+      padding: 0.4rem 0.5rem;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--overlay-hairline);
+      white-space: nowrap;
+    }
+    .proposal-table tr:last-child td { border-bottom: none; }
+    .proposal-table td:nth-child(1) { font-weight: 700; color: var(--text); }
+    .proposal-table td:nth-child(2) { font-family: var(--mono); font-weight: 700; color: var(--rose); }
+    .proposal-table td:nth-child(4) { color: var(--cyan); white-space: normal; }
+
+    .rate-row { padding: 0.3rem 0 0.4rem; }
+    .rate-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+      padding-bottom: 0.25rem;
+    }
+    /* Same shape language as the resource tiles: the bar ranks the row
+       against the fastest output at this base, so the ordering is visible
+       before the numbers are read. */
+    .rate-bar { --tone: var(--green); }
+    .rate-name { color: var(--text); }
+    .rate-val { font-family: var(--mono); font-weight: 700; color: var(--green); white-space: nowrap; }
+
+    .suit-table { width: 100%; border-collapse: collapse; }
+    .suit-table th {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-faint);
+      text-align: right;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .suit-table th:first-child { text-align: left; }
+    .suit-table td {
+      padding: 0.3rem 0.5rem;
+      font-size: 0.8rem;
+      text-align: right;
+      font-family: var(--mono);
+      font-weight: 700;
+      border-bottom: 1px solid var(--overlay-hairline);
+    }
+    .suit-table td:first-child {
+      text-align: left;
+      font-family: inherit;
+      font-weight: 400;
+      color: var(--text-dim);
+    }
+    .suit-table tr:last-child td { border-bottom: none; }
+    .suit-table td.short { color: var(--rose); }
+    .suit-table td.ok { color: var(--green); }
+    .suit-table td.none { color: var(--text-faint); font-weight: 400; }
+
+    .power-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .power-stat {
+      position: relative;
+      overflow: hidden;
+      flex: 1;
+      min-width: 150px;
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--base-color) 8%, transparent), transparent 60%),
+        var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.7rem 0.5rem 0.8rem;
+    }
+    .power-stat::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 2px;
+      background: var(--base-color);
+      opacity: 0.7;
+    }
+    .power-stat-label {
+      display: block;
+      font-size: 0.68rem;
+      color: var(--text-faint);
+      margin-bottom: 0.15rem;
+    }
+    .power-stat-val {
+      display: block;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+    .power-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.4rem;
+    }
+    .power-bar-label {
+      width: 4.5rem;
+      flex: none;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+    .power-bar-track {
+      flex: 1;
+      height: 10px;
+      border-radius: 5px;
+      background: var(--overlay-track);
+      overflow: hidden;
+      position: relative;
+    }
+    .power-bar-fill {
+      height: 100%;
+      border-radius: 5px;
+      transition: width 0.4s ease;
+      background-image: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0));
+    }
+    .power-bar-nums {
+      flex: none;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      min-width: 5.5rem;
+      text-align: right;
+    }
+
+    /* A unit or qualifier that belongs to the whole section, carried in
+       its heading instead of repeated on every row below it. */
+    .econ-unit {
+      font-size: 0.72rem;
+      font-weight: 400;
+      color: var(--text-faint);
+      font-family: var(--mono);
+    }
+
+    .econ-toggle-btn {
+      font-size: 0.68rem;
+      color: var(--text-faint);
+      cursor: pointer;
+      user-select: none;
+      background: none;
+      border: none;
+      font-family: inherit;
+    }
+    .econ-toggle-btn:hover { color: var(--text-dim); }
+
+    /* Every header that opens and closes the block under it. The 展开/收起
+       control stays put as the visible state label, but the whole row is
+       the hit target — these are opened and closed constantly, and a
+       six-character button is a small thing to keep aiming at. The control
+       itself still works, so it stops the click from reaching the row and
+       toggling twice. */
+    .collapse-head { cursor: pointer; user-select: none; }
+    .collapse-head:hover { background-color: var(--overlay-hover); }
+    .collapse-head:hover .econ-toggle-btn { color: var(--text); }
+    .collapse-head:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+    /* The side-card and 物资 headers are already padded boxes, so the hover
+       tint has somewhere to sit. A section heading isn't: it's flush with
+       the section's own padding. The negative margins give the tint a box
+       that reaches the section edges while the paddings put the text and
+       its colour rail back exactly where they were — so this heading still
+       lines up with the ones above and below it. */
+    .econ-heading.collapse-head {
+      margin: -0.2rem -0.45rem 0.4rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 6px;
+    }
+    .resource-grid.truncated .res-tile:nth-child(n+13) { display: none; }
+
+    /* ─── Crafting calculator ─── */
+    .craft-source-note { font-size: 0.72rem; font-weight: 400; color: var(--text-faint); margin-left: 0.4rem; }
+    .craft-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.7rem 0.95rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .craft-ctl-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .craft-ctl-label { font-size: 0.75rem; font-weight: 700; color: var(--text-dim); }
+    .craft-base-chips, .craft-cats { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .craft-chip {
+      appearance: none;
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .craft-chip:hover { border-color: var(--border-hover); color: var(--text); }
+    .craft-chip.active {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: color-mix(in srgb, var(--cyan) 12%, transparent);
+    }
+    .craft-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      cursor: pointer;
+      margin-left: auto;
+    }
+    .craft-search {
+      flex: 1;
+      min-width: 0;
+      font: inherit;
+      font-size: 0.82rem;
+      padding: 0.4rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .craft-search:focus { outline: none; border-color: var(--cyan); }
+
+    .craft-body { display: grid; grid-template-columns: 1fr; }
+    @media (min-width: 900px) {
+      .craft-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
+      .craft-list-wrap { border-right: 1px solid var(--border); }
+    }
+    .craft-list-head {
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      padding: 0.45rem 0.95rem 0.3rem;
+    }
+    .craft-list { max-height: 62vh; overflow-y: auto; }
+    .craft-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      text-align: left;
+      appearance: none;
+      font: inherit;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--overlay-hairline);
+      padding: 0.4rem 0.95rem;
+      cursor: pointer;
+    }
+    .craft-row:hover { background: var(--overlay-soft); }
+    .craft-row.active { background: color-mix(in srgb, var(--cyan) 10%, transparent); }
+    .craft-row-name { flex: 1; min-width: 0; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .craft-row-tag {
+      font-size: 0.62rem;
+      color: var(--text-faint);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 0.25rem;
+      flex: none;
+    }
+    /* How many the current stock can make — the answer the list is for, so
+       it carries the colour: green when something can be made, dim when not. */
+    .craft-row-can {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--green);
+      flex: none;
+    }
+    .craft-row-can.zero { color: var(--text-faint); font-weight: 400; }
+
+    .craft-detail { padding: 0.85rem 0.95rem 1rem; }
+    .craft-title { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .craft-sub { font-size: 0.72rem; color: var(--text-faint); font-family: var(--mono); margin-top: 0.2rem; }
+    .craft-max {
+      margin: 0.7rem 0;
+      padding: 0.6rem 0.8rem;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--green) 25%, var(--border));
+      background: color-mix(in srgb, var(--green) 8%, transparent);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--green);
+    }
+    .craft-max.zero {
+      border-color: color-mix(in srgb, var(--rose) 25%, var(--border));
+      background: color-mix(in srgb, var(--rose) 8%, transparent);
+      color: var(--rose);
+    }
+    .craft-max b { font-family: var(--mono); font-size: 1.1rem; }
+    /* The caveat under a combined-stock figure — same box, quieter voice. */
+    .craft-split {
+      display: block;
+      margin-top: 0.25rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--amber);
+    }
+    /* Recipe variants for one product — same chip vocabulary as the filters,
+       with what each variant can currently make. */
+    .craft-variants {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.55rem;
+    }
+    .craft-qty { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+    .craft-qty-label { font-size: 0.75rem; color: var(--text-dim); font-weight: 700; }
+    .craft-qty input {
+      width: 5.5rem;
+      font: inherit;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      padding: 0.3rem 0.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .craft-mat-table { width: 100%; border-collapse: collapse; }
+    .craft-mat-table th {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-align: right;
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .craft-mat-table th:first-child { text-align: left; }
+    .craft-mat-table td {
+      font-size: 0.82rem;
+      padding: 0.35rem 0.5rem;
+      text-align: right;
+      font-family: var(--mono);
+      border-bottom: 1px solid var(--overlay-hairline);
+    }
+    .craft-mat-table td:first-child { text-align: left; font-family: var(--sans); }
+    /* The material cell now carries several wrapped lines under the name, so
+       the numeric columns have to be told not to wrap their own headers. */
+    .craft-mat-table th:not(:first-child), .craft-mat-table td:not(:first-child) { white-space: nowrap; }
+    .craft-mat-table tr:last-child td { border-bottom: none; }
+    .craft-mat-table td.short { color: var(--rose); font-weight: 700; }
+    .craft-mat-table td.ok { color: var(--green); }
+    /* Where a material is, under its name: one chip per base holding any,
+       in that base's own colour. A base that isn't part of the selected
+       stock source is outlined instead of filled — it counts as "exists,
+       but not here". */
+    .craft-where { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.2rem; }
+    .cw-chip {
+      font-family: var(--sans);
+      font-size: 0.66rem;
+      font-weight: 700;
+      white-space: nowrap;
+      padding: 0.05rem 0.4rem;
+      border-radius: 999px;
+      color: var(--c);
+      background: color-mix(in srgb, var(--c) 13%, transparent);
+      border: 1px solid transparent;
+    }
+    .cw-chip.other {
+      background: none;
+      border-color: color-mix(in srgb, var(--c) 40%, transparent);
+      color: color-mix(in srgb, var(--c) 75%, var(--text-faint));
+    }
+    .cw-none { font-family: var(--sans); font-size: 0.66rem; color: var(--text-faint); }
+
+    .craft-buy {
+      display: block;
+      margin-top: 0.2rem;
+      font-family: var(--sans);
+      font-size: 0.72rem;
+      line-height: 1.5;
+      color: var(--amber);
+    }
+
+    .craft-subrecipe {
+      font-size: 0.72rem;
+      color: var(--cyan);
+      font-family: var(--sans);
+      display: block;
+      margin-top: 0.15rem;
+    }
+    .craft-note {
+      margin-top: 0.7rem;
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      line-height: 1.6;
+    }
+    .craft-warn { color: var(--amber); }
+
+    /* ─── Info Footer ─── */
+    .info-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      padding-top: 0.25rem;
+    }
+    .info-footer a {
+      color: var(--text-dim);
+      text-decoration: none;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 600px) {
+      .shell { padding: 0.75rem; }
+      .stats-strip { grid-template-columns: repeat(2, 1fr); }
+      .stat-value { font-size: 1.1rem; }
+      .san-cell { min-width: 100px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <!-- Top Bar -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>🏰 据点监控</h1>
+        <span class="server-pill" id="server-status">
+          <span class="dot"></span>
+          <span id="server-status-text">连接中…</span>
+        </span>
+        <span class="server-uptime" id="server-uptime"></span>
+        <span class="stale-badge" id="stale-badge" style="display:none"></span>
+        <span class="stale-badge fetch-fail" id="fetch-badge" style="display:none"></span>
+      </div>
+      <div class="topbar-right-group">
+        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="切换深色/浅色">🌙</button>
+        <div class="topbar-right" id="update-time">--:--:--</div>
+      </div>
+    </div>
+
+    <!-- Stats Strip -->
+    <div class="stats-strip">
+      <div class="stat-cell" style="--accent:var(--cyan)">
+        <div class="stat-label">内存</div>
+        <div class="stat-value" id="s-mem" style="color:var(--cyan)">--</div>
+        <div class="stat-sub" id="s-mem-detail">PalSrv --</div>
+      </div>
+      <div class="stat-cell" style="--accent:var(--green)">
+        <div class="stat-label">在线</div>
+        <div class="stat-value" id="s-players" style="color:var(--green)">--</div>
+        <div class="stat-sub" id="s-players-max">/ --</div>
+      </div>
+      <div class="stat-cell" style="--accent:var(--indigo)">
+        <div class="stat-label">游戏天</div>
+        <div class="stat-value" id="s-days" style="color:var(--indigo)">--</div>
+        <div class="stat-sub" id="s-uptime">--</div>
+      </div>
+      <div class="stat-cell" style="--accent:var(--text-dim)">
+        <div class="stat-label">据点帕鲁</div>
+        <div class="stat-value" id="s-base-pals">--</div>
+        <div class="stat-sub" id="s-total-pals">全服 --</div>
+      </div>
+      <div class="stat-cell" style="--accent:var(--rose)">
+        <div class="stat-label">⚠ 警报</div>
+        <div class="stat-value" id="s-alerts" style="color:var(--text-faint)">0</div>
+        <div class="stat-sub" id="s-alert-detail">全部健康</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="alerts" onclick="switchTab('alerts')">⚠ 警报<span class="tab-badge" id="tab-alert-badge" style="display:none">0</span></button>
+      <button class="tab-btn" data-tab="bases" onclick="switchTab('bases')">🏕 据点详情</button>
+      <button class="tab-btn" data-tab="craft" onclick="switchTab('craft')">🔨 制造计算</button>
+      <button class="tab-btn" data-tab="server" onclick="switchTab('server')">📡 服务器监控</button>
+    </div>
+
+    <!-- ══ Alerts Tab ══ -->
+    <div class="tab-panel active" id="tab-alerts">
+
+    <!-- 异常帕鲁 on top: it's the shortest card (a single wrapped row of
+         chips) and the most urgent. 长期空闲统计 below it is several
+         screens tall on a busy save, so it goes second. -->
+    <div class="side-card" id="alert-pals-card">
+      <div class="side-card-header">🔔 异常帕鲁</div>
+      <div id="alert-list"><div class="empty-state">全部帕鲁状态正常</div></div>
+    </div>
+
+    <div class="side-card" id="idle-card">
+      <div class="side-card-header collapse-head" role="button" tabindex="0" data-keyactivate onclick="toggleCollapse('idle-content','idle-toggle')">
+        ⏳ 长期空闲统计
+        <button class="econ-toggle-btn" id="idle-toggle" onclick="event.stopPropagation(); toggleCollapse('idle-content','idle-toggle')">收起</button>
+      </div>
+      <div class="collapsible" id="idle-content"><div class="empty-state">数据采集中…</div></div>
+    </div>
+
+    </div>
+    <!-- ══ /Alerts Tab ══ -->
+
+    <!-- ══ Server Monitoring Tab ══ -->
+    <div class="tab-panel" id="tab-server">
+
+    <!-- Memory & Players Chart -->
+    <div class="side-card" id="mem-chart-card">
+      <div class="side-card-header collapse-head" role="button" tabindex="0" data-keyactivate onclick="toggleCollapse('mem-chart-body','mem-chart-toggle')">
+        📈 内存 & 在线人数趋势
+        <button class="econ-toggle-btn" id="mem-chart-toggle" onclick="event.stopPropagation(); toggleCollapse('mem-chart-body','mem-chart-toggle')">收起</button>
+      </div>
+      <div class="collapsible" id="mem-chart-body">
+        <!-- The legend is also the series picker: clicking an entry drops
+             that line from the chart. Rescaling follows (the players axis
+             and the % axis each disappear with their own series), so
+             switching off a series actually gives the others the space. -->
+        <div class="chart-legend">
+          <button class="legend-item" id="lg-item-sys_pct" title="点击显示 / 隐藏这条曲线" onclick="toggleSeries('sys_pct')"><i class="legend-dot" style="background:var(--cyan)"></i>系统内存 <b id="lg-sys">--%</b></button>
+          <button class="legend-item" id="lg-item-palserver_mb" title="点击显示 / 隐藏这条曲线" onclick="toggleSeries('palserver_mb')"><i class="legend-dot" style="background:var(--indigo)"></i>PalServer <b id="lg-pal">--MB</b></button>
+          <button class="legend-item" id="lg-item-online_players" title="点击显示 / 隐藏这条曲线" onclick="toggleSeries('online_players')"><i class="legend-dot" style="background:var(--green)"></i>在线人数 <b id="lg-players">--</b></button>
+        </div>
+        <div class="chart-meta">
+          <span id="mem-chart-span">左轴为占系统内存的真实百分比，右轴为在线人数</span>
+          <span id="mem-chart-points">-- 个采样点</span>
+        </div>
+        <div class="chart-wrap">
+          <svg id="mem-chart-svg" class="chart-svg" viewBox="0 0 1000 220"></svg>
+          <div class="chart-tooltip" id="mem-tooltip">
+            <span class="mt-time"></span>
+            <span class="mt-val" id="mt-sys" style="color:var(--cyan)"></span>
+            <span class="mt-val" id="mt-pal" style="color:var(--indigo)"></span>
+            <span class="mt-val" id="mt-players" style="color:var(--green)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Online Players -->
+    <div class="side-card" id="player-card">
+      <div class="side-card-header">👥 玩家</div>
+      <div class="side-card-body" id="player-list">
+        <div class="empty-state">暂无玩家在线</div>
+      </div>
+    </div>
+
+    <!-- Server Info -->
+    <div class="side-card" id="server-info-card">
+      <div class="side-card-header">📡 服务器</div>
+      <div class="side-card-body" style="padding: 0.5rem 0.85rem;">
+        <div style="font-size:0.8rem; color:var(--text-dim); display:flex; flex-direction:column; gap:0.3rem;" id="server-info">
+          <span>—</span>
+        </div>
+      </div>
+    </div>
+
+    </div>
+    <!-- ══ /Server Monitoring Tab ══ -->
+
+    <!-- ══ Base Details Tab ══ -->
+    <div class="tab-panel" id="tab-bases">
+      <!-- One tab + one .base-panel per base, both built by
+           syncBasePanels() from status.json's own "bases" list — the
+           backend enumerates every camp the guild owns, so a base built
+           in-game appears here without this markup being copied a third
+           time. Only the selected base's panel is displayed; all of them
+           stay in the DOM and keep being rendered on every poll, so
+           switching tabs never shows stale data or waits for a fetch. -->
+      <div class="base-tab-nav" id="base-tab-nav"></div>
+      <div class="bases-col" id="bases-col"></div>
+    </div>
+    <!-- ══ /Base Details Tab ══ -->
+
+    <!-- ══ Crafting Calculator Tab ══ -->
+    <div class="tab-panel" id="tab-craft">
+      <div class="side-card">
+        <div class="side-card-header">🔨 制造计算 <span class="craft-source-note" id="craft-source-note"></span></div>
+        <div class="craft-controls">
+          <div class="craft-ctl-row">
+            <span class="craft-ctl-label">库存来源</span>
+            <div class="craft-base-chips" id="craft-base-chips"></div>
+            <label class="craft-toggle"><input type="checkbox" id="craft-pending" onchange="setCraftPending(this.checked)"> 计入待收集</label>
+          </div>
+          <div class="craft-ctl-row">
+            <input class="craft-search" id="craft-search" type="search" placeholder="搜索配方（中文名或内部 ID）…" oninput="setCraftQuery(this.value)">
+          </div>
+          <div class="craft-cats" id="craft-cats"></div>
+        </div>
+        <div class="craft-body">
+          <div class="craft-list-wrap">
+            <div class="craft-list-head" id="craft-list-head"></div>
+            <div class="craft-list" id="craft-list"><div class="empty-state">配方载入中…</div></div>
+          </div>
+          <div class="craft-detail" id="craft-detail"><div class="empty-state">从左侧选择一个配方</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- ══ /Crafting Calculator Tab ══ -->
+
+    <!-- Footer -->
+    <div class="info-footer">
+      <span>数据来源: Level.sav 实时解析 + REST API</span>
+      <span>每 60 秒自动刷新（后端每 5 分钟另有定时采集）</span>
+    </div>
+  </div>
+
+  <script>
+    function sanColor(val) {
+      if (val < 30) return 'var(--rose)';
+      if (val < 60) return 'var(--amber)';
+      return 'var(--green)';
+    }
+
+    // ─── Persisted UI state ───
+    // Every collapse/expand and filter choice on the page lands here and is
+    // written to localStorage, so a reload doesn't silently re-collapse the
+    // three sections you had open. Keys are prefixed by control kind
+    // ('c'=collapsible, 'r'=resource grid, 'a'=active base tab, 'f'=pal
+    // filter, 'g'=idle-panel base group) so one flat object covers all of them.
+    const UI_STATE_KEY = 'palDashboardUi';
+    let uiState = {};
+    try { uiState = JSON.parse(localStorage.getItem(UI_STATE_KEY)) || {}; } catch (e) { uiState = {}; }
+    function saveUiState() {
+      try { localStorage.setItem(UI_STATE_KEY, JSON.stringify(uiState)); } catch (e) {}
+    }
+
+    // The pal list has exactly ONE filter, held here: 'ALL', 'ABNORMAL',
+    // or a work-suitability key. It used to be two independent controls —
+    // a 展开全部/收起 button (hide status_code === 'OK' pals) plus a
+    // separate suitability filter — and they contradicted each other: with
+    // 收起 active, the "全部" chip still hid healthy pals, so a healthy pal
+    // could appear under 采矿 而 not under 全部 and read as fabricated data.
+    // Defaults to ALL: with ABNORMAL as the default, a base where nothing
+    // is wrong opened to an empty table — hiding the matrix, which is the
+    // part you actually came to read — and the 仅异常 chip is right there.
+    // Keyed by panel prefix ('b1', 'b2', ...); syncBasePanels seeds an
+    // entry for each base it builds, so this doesn't need to know how
+    // many there are.
+    const palFilter = {};
+
+
+    function setPalFilter(prefix, suit) {
+      palFilter[prefix] = suit;
+      uiState[`f:${prefix}`] = suit;
+      saveUiState();
+      if (!lastData) return;
+      const b = BASES.find(x => x.prefix === prefix);
+      if (!b) return;
+      renderPalFilter(`${prefix}-pal-filter`, prefix, lastData[`${b.key}_pals`], lastData[`${b.key}_facilities`]);
+      renderPalTable(`${prefix}-pal-table`, lastData[`${b.key}_pals`], lastData[`${b.key}_facilities`], palFilter[prefix]);
+    }
+
+    // Which work-suitability columns this base's matrix needs, plus the
+    // two footer rows' numbers:
+    //   supply = how many pals here have that suitability at all (rank>0),
+    //            headcount not rank-sum — "can this job get covered".
+    //   demand = how many placed facilities need it (a facility needing
+    //            two types, e.g. a farm plot needing Seeding + Watering,
+    //            counts toward both).
+    // Ordered by demand desc so the jobs this base actually has to staff
+    // sit leftmost. Same numbers the standalone 工作适应性 table used to
+    // show; it's now the footer of this matrix instead of its own section.
+    function baseSuitColumns(pals, facilities) {
+      const demand = {};
+      for (const [fid, count] of Object.entries(facilities || {})) {
+        for (const suit of FACILITY_SUITABILITY[fid] || []) {
+          demand[suit] = (demand[suit] || 0) + count;
+        }
+      }
+      const supply = {};
+      for (const p of pals || []) {
+        const ws = palWorkSuitability(p.type);
+        if (!ws) continue;
+        for (const [s, r] of Object.entries(ws)) {
+          if (r > 0) supply[s] = (supply[s] || 0) + 1;
+        }
+      }
+      const types = [...new Set([...Object.keys(demand), ...Object.keys(supply)])];
+      types.sort((a, b) => (demand[b] || 0) - (demand[a] || 0) || (supply[b] || 0) - (supply[a] || 0));
+      return { types, demand, supply };
+    }
+
+    // Which of this base's placed facilities each suitability staffs —
+    // the inverse of FACILITY_SUITABILITY, restricted to what's actually
+    // built here so a chip names facilities you really have rather than
+    // every facility in the game that could use that suitability.
+    function suitabilityFacilities(facilities) {
+      const map = {};
+      for (const [fid, count] of Object.entries(facilities || {})) {
+        if (!count) continue;
+        for (const suit of FACILITY_SUITABILITY[fid] || []) {
+          (map[suit] = map[suit] || []).push(fid);
+        }
+      }
+      return map;
+    }
+
+    function renderPalFilter(elId, base, pals, facilities) {
+      const el = document.getElementById(elId);
+      const facMap = suitabilityFacilities(facilities);
+      const { types, supply } = baseSuitColumns(pals, facilities);
+      const active = palFilter[base];
+      const abnormal = (pals || []).filter(p => p.status_code !== 'OK').length;
+
+      // The facility list stays in the tooltip and out of the chip body.
+      // Inline it ran three or four wrapped rows of ellipsised names above
+      // every roster — more chrome than the table it was filtering.
+      const chip = (key, label, count, facLabel) =>
+        `<button class="pal-filter-chip ${active === key ? 'active' : ''}" onclick="setPalFilter('${base}','${key}')"${facLabel ? ` title="对应设施：${facLabel}"` : ''}>
+          <span>${label}</span>
+          <span class="pfc-count">${count}</span>
+        </button>`;
+
+      const suitChips = types.map(t =>
+        chip(t, suitabilityName(t), supply[t] || 0, (facMap[t] || []).map(facilityName).join('/'))
+      ).join('');
+
+      el.innerHTML = chip('ALL', '全部', (pals || []).length)
+        + chip('ABNORMAL', '仅异常', abnormal)
+        + suitChips;
+    }
+
+    // Pal roster and work-suitability coverage as one matrix — a row per
+    // pal, a column per suitability, and the per-column 具备/需求 totals as
+    // footer rows (what the standalone 工作适应性 section used to show).
+    // Keeping them apart meant reading the same numbers twice in two
+    // different shapes; together, "who can do this and is it enough" is
+    // one glance down a column.
+    function renderPalTable(containerId, pals, facilities, filter) {
+      const el = document.getElementById(containerId);
+      if (!pals || pals.length === 0) {
+        el.innerHTML = '<div class="empty-state">暂无数据</div>';
+        return;
+      }
+      const { types, demand, supply } = baseSuitColumns(pals, facilities);
+      const list = filter === 'ALL' ? pals
+        : filter === 'ABNORMAL' ? pals.filter(p => p.status_code !== 'OK')
+        : pals.filter(p => ((palWorkSuitability(p.type) || {})[filter] || 0) > 0);
+
+      // 状态 rides along under the pal's name instead of getting its own
+      // trailing column: with two base panels side by side on a desktop the
+      // matrix is already wider than a panel, and the rightmost column was
+      // the one that got clipped by the horizontal scroll — i.e. exactly the
+      // one you most want to see without scrolling.
+      const head = `<tr>
+        <th>帕鲁</th><th>Lv</th><th>SAN</th>
+        ${types.map(t => `<th class="ws-col ${t === filter ? 'hl' : ''}">${suitabilityName(t)}</th>`).join('')}
+        <th>岗位</th>
+      </tr>`;
+
+      let body;
+      if (list.length === 0) {
+        const msg = filter === 'ABNORMAL'
+          ? `${pals.length} 只帕鲁状态均正常`
+          : `没有具备「${suitabilityName(filter)}」的帕鲁`;
+        body = `<tr><td colspan="${types.length + 4}" class="empty-state">${msg}</td></tr>`;
+      } else {
+        body = list.map(p => {
+          const color = sanColor(p.san);
+          const species = palName(p.type);
+          // Species name only needs its own line when it differs from what's
+          // already shown — i.e. when the player gave the pal a nickname.
+          const nameHtml = (p.name
+            ? `${p.name}<span class="pal-type">${species}</span>`
+            : species)
+            + (p.status_code === 'OK' ? '' : `<span class="status-tag ${p.status_code}">${p.status}</span>`);
+          const ws = palWorkSuitability(p.type) || {};
+          const cells = types.map(t => {
+            const r = ws[t] || 0;
+            return `<td class="ws-col ${t === filter ? 'hl' : ''} ${r ? '' : 'zero'}">${r || '·'}</td>`;
+          }).join('');
+          // 🔒 marks a job the player locked the pal to (won't wander off to
+          // other work on its own). Work ratio is "% of observed history
+          // this pal has had *some* job" — shown even when currently idle,
+          // since that's a separate, longer-run signal from the instant
+          // snapshot of whether it's working right this moment.
+          const jobLabel = p.job
+            ? `${p.job_fixed ? '🔒 ' : ''}${facilityName(p.job)}`
+            : '<span style="color:var(--text-faint)">空闲</span>';
+          // Only shown once there is one. The "still collecting" case used
+          // to print a second line under every single row, which doubled
+          // the height of the whole table to say the same thing 15 times.
+          const ratioLabel = p.work_ratio != null
+            ? `<span class="job-ratio">工作占比 ${Math.round(p.work_ratio * 100)}%</span>`
+            : '';
+          return `<tr>
+            <td><div class="pal-name-cell">${nameHtml}</div></td>
+            <td><span class="lv-badge">${p.level || '?'}</span></td>
+            <td>
+              <div class="san-cell">
+                <div class="san-track"><div class="san-fill" style="width:${Math.min(100, p.san)}%;background-color:${color}"></div></div>
+                <span class="san-num" style="color:${color}">${p.san}</span>
+              </div>
+            </td>
+            ${cells}
+            <td><div class="job-cell">${jobLabel}${ratioLabel}</div></td>
+          </tr>`;
+        }).join('');
+      }
+
+      // Totals always cover the whole base, never just the filtered rows —
+      // "does this base have enough Mining pals" doesn't change because
+      // you're currently looking at only the sick ones.
+      // Both footer rows print zero the same way — a dimmed 0, never a '·'
+      // in one row and a 0 in the other. The asymmetry made "nobody here can
+      // do this" and "nothing here needs it" look like different kinds of
+      // value when they're both just zero.
+      const sumCell = (t, v, short) =>
+        `<td class="ws-col ${t === filter ? 'hl' : ''} ${short ? 'short' : ''} ${v ? '' : 'zero'}">${v}</td>`;
+      const foot = `
+        <tr class="sum-row">
+          <td colspan="3">具备（本据点全部 ${pals.length} 只）</td>
+          ${types.map(t => sumCell(t, supply[t] || 0, (demand[t] || 0) > 0 && (supply[t] || 0) < demand[t])).join('')}
+          <td></td>
+        </tr>
+        <tr class="sum-row">
+          <td colspan="3">实际需求（设施数）</td>
+          ${types.map(t => sumCell(t, demand[t] || 0, (demand[t] || 0) > 0 && (supply[t] || 0) < demand[t])).join('')}
+          <td></td>
+        </tr>`;
+
+      el.innerHTML = `<table class="pal-table pal-matrix">
+        <thead>${head}</thead>
+        <tbody>${body}</tbody>
+        <tfoot>${foot}</tfoot>
+      </table>`;
+      syncPalHeadPin(el);
+    }
+
+    // Pin the roster header to the top of the page, but only while the
+    // matrix fits its panel — see .pal-table-wrap.pinned-head for why the
+    // two can't both be true.
+    function syncPalHeadPin(wrap) {
+      const table = wrap.querySelector('table');
+      // A base panel that isn't the selected one is display:none and
+      // measures zero; the observer re-runs this when it gets a size.
+      if (!table || !wrap.clientWidth) return;
+      // Measure the *table*, not the wrapper's scrollWidth: the table is
+      // width:max-content/min-width:100%, so it reads the same whether or
+      // not the wrapper is currently a scroll container. scrollWidth changes
+      // meaning as the class toggles, which makes the toggle oscillate.
+      wrap.classList.toggle('pinned-head', table.offsetWidth <= wrap.clientWidth);
+    }
+    // The answer changes on a re-render, on a resize, and whenever a panel
+    // that was display:none comes on screen — so the two switchers call this
+    // too. (A ResizeObserver looks like the tidier way to catch all three,
+    // but its notifications are tied to frame production, and the ones for
+    // a panel going from display:none to visible do not reliably arrive.)
+    function syncPalHeadPins() {
+      document.querySelectorAll('.pal-table-wrap').forEach(syncPalHeadPin);
+    }
+    window.addEventListener('resize', syncPalHeadPins);
+
+    // Every player who has ever joined, not just who's online right now —
+    // an offline player shows when they were last seen (from their own
+    // save file's LastOnlineDateTime) instead of just disappearing from
+    // the list. There used to be a "战力" number alongside that; it was the
+    // Expeditions firepower formula, which is dominated by a (stars+1)^2
+    // condensation term and so ranked a level-1 condensed pal above a
+    // level-80 one. The stats behind it are no longer computed at all.
+    function renderPlayers(players) {
+      const el = document.getElementById('player-list');
+      if (!players || players.length === 0) {
+        el.innerHTML = '<div class="empty-state">暂无玩家数据</div>';
+        return;
+      }
+      el.innerHTML = players.map(p => {
+        // "最后登录", not "最后在线": this comes from each player save's
+        // LastOnlineDateTime, and checking it against a session whose real
+        // end time was known (logged off around midnight, field said 15:46
+        // the same day) showed it tracks when the session *started*.
+        // Calling it 最后在线 made a correct reading look like a bug.
+        const statusLabel = p.online ? '在线' : (p.last_online ? `最后登录 ${p.last_online.slice(5, 16)}` : '离线');
+        return `<div class="player-row ${p.online ? '' : 'offline'}">
+          <span class="player-name"><span class="online-dot ${p.online ? '' : 'offline'}"></span>${p.name}<span class="player-meta">Lv.${p.level}</span></span>
+          <span class="player-sub">
+            <span>${statusLabel}</span>
+          </span>
+        </div>`;
+      }).join('');
+    }
+
+    // Sick or low-SAN pals across every base, sorted danger-first. The
+    // per-pal detail (SAN bar, job, level) already lives in each base's
+    // own pal table — this is only the "which ones need attention"
+    // shortlist, so it stays to one compact chip per pal. The chip's base
+    // tag drops the "据点" suffix off the panel label to stay one chip
+    // wide ("1号据点" -> "1号").
+    function renderAlerts(d) {
+      const el = document.getElementById('alert-list');
+      const all = BASES.flatMap(b =>
+        (d[`${b.key}_pals`] || []).map(p => ({ ...p, base: b.label.replace('据点', '') }))
+      ).filter(p => p.status_code !== 'OK');
+
+      if (all.length === 0) {
+        el.innerHTML = '<div class="empty-state">全部帕鲁状态正常 ✓</div>';
+        return;
+      }
+      all.sort((a, b) => (a.status_code === 'DANGER' ? 0 : 1) - (b.status_code === 'DANGER' ? 0 : 1));
+      el.innerHTML = `<div class="alert-chips">${all.map(p => {
+        const val = p.sick ? p.sick_name : `SAN ${p.san}`;
+        return `<span class="alert-chip ${p.status_code}">
+          <span class="ac-base">${p.base}</span><span class="ac-name">${p.name || palName(p.type)}</span>${val}
+        </span>`;
+      }).join('')}</div>`;
+    }
+
+    // ─── Memory + online-players chart (SVG, hand-rolled: no chart lib available) ───
+    // Two axes, both in real units — nothing here is normalized into a fake band
+    // any more. The left axis is a genuine 0–100% of system RAM and carries two
+    // series: sys_pct as reported, and PalServer's RSS converted to its own share
+    // of total RAM, so the two can be read against each other and against the
+    // gridlines directly. Online players is a head count, not a percentage, so
+    // painting it on the % axis was what made 4 players sit on the 100% line —
+    // it now has its own right-hand axis with whole-person ticks.
+    const memChart = { history: [], sysTotalMb: 0 };
+    const SERIES = [
+      { key: 'sys_pct',        color: 'var(--cyan)',   legendId: 'lg-sys',     tipId: 'mt-sys' },
+      { key: 'palserver_mb',   color: 'var(--indigo)', legendId: 'lg-pal',     tipId: 'mt-pal' },
+      { key: 'online_players', color: 'var(--green)',  legendId: 'lg-players', tipId: 'mt-players' },
+    ];
+
+    // Which series are drawn. Remembered like every other panel state, so a
+    // reader who only cares about PalServer's memory keeps that view across
+    // reloads.
+    const seriesOn = {};
+    for (const s of SERIES) seriesOn[s.key] = uiState[`s:${s.key}`] !== false;
+
+    function applySeriesToggles() {
+      for (const s of SERIES) {
+        const el = document.getElementById(`lg-item-${s.key}`);
+        if (el) el.classList.toggle('off', !seriesOn[s.key]);
+      }
+    }
+
+    function toggleSeries(key) {
+      seriesOn[key] = !seriesOn[key];
+      uiState[`s:${key}`] = seriesOn[key];
+      saveUiState();
+      applySeriesToggles();
+      if (memChart.history.length) renderMemChart(memChart.history);
+    }
+
+    // PalServer RSS as a share of total system RAM. null while the status poll
+    // hasn't reported a total yet (memChart.sysTotalMb is set in fetchData): the
+    // total is a constant, so it rides on the status payload rather than being
+    // repeated on all ~2000 history points.
+    function palPct(mb) {
+      if (!memChart.sysTotalMb) return null;
+      return (Math.max(0, mb || 0) / memChart.sysTotalMb) * 100;
+    }
+
+    function renderMemChart(history) {
+      const svg = document.getElementById('mem-chart-svg');
+      const tooltip = document.getElementById('mem-tooltip');
+      document.getElementById('mem-chart-points').textContent = `${history.length} 个采样点`;
+
+      if (!history || history.length < 2) {
+        svg.innerHTML = '<text x="500" y="110" text-anchor="middle" font-size="13" fill="var(--text-faint)">数据积累中…</text>';
+        return;
+      }
+
+      memChart.history = history;
+
+      const W = 1000, H = 220, PAD_L = 34, PAD_R = 40, PAD_T = 16, PAD_B = 22;
+      const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+      const n = history.length;
+      const xAt = i => PAD_L + (innerW * i) / (n - 1);
+      const yAtPct = pct => PAD_T + innerH * (1 - Math.min(100, Math.max(0, pct)) / 100);
+
+      // Right axis top, rounded up to a multiple of 4 so all five gridlines land
+      // on whole people rather than on 1.75 of a player.
+      const playersSeen = Math.max(0, ...history.map(h => h.online_players || 0));
+      const playersTop = Math.max(4, Math.ceil(playersSeen / 4) * 4);
+      const yAtPlayers = v => yAtPct((Math.max(0, v || 0) / playersTop) * 100);
+
+      // Two independent reasons a series isn't drawn: the reader switched it
+      // off in the legend, or (PalServer only) there's no system total to
+      // place it against yet — without one there is no honest position for
+      // that line, so it's dropped rather than drawn on a made-up scale.
+      // Both land here so nothing downstream has to know which it was.
+      const hasPal = memChart.sysTotalMb > 0;
+      const visible = SERIES.filter(s => seriesOn[s.key] && (s.key !== 'palserver_mb' || hasPal));
+      const visibleKeys = new Set(visible.map(s => s.key));
+      const anyPct = visibleKeys.has('sys_pct') || visibleKeys.has('palserver_mb');
+
+      // Legend readings are the latest values, drawn or not — switching a
+      // series off takes it off the chart, it doesn't stop reporting it.
+      const last = history[n - 1];
+      const lastPalPct = palPct(last.palserver_mb);
+      document.getElementById('lg-sys').textContent = `${last.sys_pct ?? 0}%`;
+      document.getElementById('lg-pal').textContent = lastPalPct === null
+        ? `${last.palserver_mb ?? 0}MB`
+        : `${last.palserver_mb ?? 0}MB (${lastPalPct.toFixed(1)}%)`;
+      document.getElementById('lg-players').textContent = `${last.online_players ?? 0} 人`;
+
+      // The axis note describes the axes that are actually on screen: with
+      // the memory series switched off there is no left axis to explain, and
+      // saying there is one is worse than saying nothing.
+      const spanEl = document.getElementById('mem-chart-span');
+      if (spanEl) {
+        const axes = [];
+        if (anyPct) axes.push('左轴为占系统内存的真实百分比');
+        if (visibleKeys.has('online_players')) axes.push(`${anyPct ? '右轴' : '纵轴'}为在线人数`);
+        spanEl.textContent = `${history[0].t} – ${history[n - 1].t}${axes.length ? ` · ${axes.join('，')}` : ''}`;
+      }
+
+      if (!visible.length) {
+        svg.innerHTML = '<text x="500" y="110" text-anchor="middle" font-size="13" fill="var(--text-faint)">未选择曲线 — 点击上方图例开启</text>';
+        return;
+      }
+
+      const yAt = (key, v) => {
+        if (key === 'online_players') return yAtPlayers(v);
+        if (key === 'palserver_mb') return yAtPct(palPct(v) || 0);
+        return yAtPct(v);
+      };
+
+      // The % scale is labelled only while something sits on it, and the
+      // people scale only while the players line is drawn — an axis with no
+      // series left on it is just a column of numbers meaning nothing.
+      let grid = '';
+      [0, 25, 50, 75, 100].forEach(p => {
+        const gy = yAtPct(p);
+        grid += `<line x1="${PAD_L}" y1="${gy.toFixed(1)}" x2="${W - PAD_R}" y2="${gy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+        if (anyPct) {
+          grid += `<text x="${PAD_L - 8}" y="${(gy + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-faint)" font-family="'JetBrains Mono',monospace">${p}%</text>`;
+        }
+        if (visibleKeys.has('online_players')) {
+          grid += `<text x="${W - PAD_R + 8}" y="${(gy + 3.5).toFixed(1)}" text-anchor="start" font-size="10" fill="var(--green)" font-family="'JetBrains Mono',monospace" opacity="0.8">${Math.round((playersTop * p) / 100)}人</text>`;
+        }
+      });
+
+      const seriesPts = {};
+      visible.forEach(s => { seriesPts[s.key] = history.map((h, i) => [xAt(i), yAt(s.key, h[s.key])]); });
+
+      const sysPts = seriesPts.sys_pct;
+      const sysLinePath = sysPts
+        ? sysPts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')
+        : '';
+      const areaPath = sysPts
+        ? `${sysLinePath} L${sysPts[n - 1][0].toFixed(1)},${(PAD_T + innerH).toFixed(1)} L${sysPts[0][0].toFixed(1)},${(PAD_T + innerH).toFixed(1)} Z`
+        : '';
+
+      const otherLines = visible.filter(s => s.key !== 'sys_pct').map(s => {
+        const pts = seriesPts[s.key];
+        const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        return `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.85"/>`;
+      }).join('');
+
+      const xIdxs = [0, Math.floor((n - 1) / 2), n - 1];
+      const xLabels = xIdxs.map(i => {
+        const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+        return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="var(--text-faint)" font-family="'JetBrains Mono',monospace">${history[i].t}</text>`;
+      }).join('');
+
+      const lastDots = visible.map(s => {
+        const [lx, ly] = seriesPts[s.key][n - 1];
+        return `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3.5" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+      }).join('');
+
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="memFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--cyan)" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="var(--cyan)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        ${sysPts ? `<path d="${areaPath}" fill="url(#memFill)" stroke="none"/>` : ''}
+        ${otherLines}
+        ${sysPts ? `<path d="${sysLinePath}" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+        ${xLabels}
+        ${lastDots}
+        <g style="pointer-events:none">
+          <line id="mem-crosshair" x1="0" y1="${PAD_T}" x2="0" y2="${PAD_T + innerH}" stroke="var(--border-hover)" stroke-width="1" visibility="hidden"/>
+          <circle id="mem-hover-dot-sys_pct" r="4" fill="var(--cyan)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+          <circle id="mem-hover-dot-palserver_mb" r="4" fill="var(--indigo)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+          <circle id="mem-hover-dot-online_players" r="4" fill="var(--green)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+        </g>
+        <rect id="mem-hit-rect" x="${PAD_L}" y="${PAD_T}" width="${innerW}" height="${innerH}" fill="transparent"/>
+      `;
+
+      const hitRect = document.getElementById('mem-hit-rect');
+      const crosshair = document.getElementById('mem-crosshair');
+      const hoverDots = {};
+      SERIES.forEach(s => { hoverDots[s.key] = document.getElementById(`mem-hover-dot-${s.key}`); });
+
+      function relXFromEvent(evt) {
+        const rect = svg.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        return (clientX - rect.left) / rect.width;
+      }
+
+      function onMove(evt) {
+        const svgX = relXFromEvent(evt) * W;
+        let idx = Math.round(((svgX - PAD_L) / innerW) * (n - 1));
+        idx = Math.max(0, Math.min(n - 1, idx));
+        const px = xAt(idx);
+        const point = history[idx];
+
+        crosshair.setAttribute('x1', px); crosshair.setAttribute('x2', px);
+        crosshair.setAttribute('visibility', 'visible');
+
+        SERIES.forEach(s => {
+          const dot = hoverDots[s.key];
+          if (!visibleKeys.has(s.key)) { dot.setAttribute('visibility', 'hidden'); return; }
+          const py = yAt(s.key, point[s.key]);
+          dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+          dot.setAttribute('visibility', 'visible');
+        });
+
+        const pointPalPct = palPct(point.palserver_mb);
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${(px / W) * 100}%`;
+        // Anchored to the first series actually drawn — sys_pct's position is
+        // meaningless (and its line absent) when it's switched off.
+        const anchor = visible[0].key;
+        tooltip.style.top = `${(yAt(anchor, point[anchor]) / H) * 100}%`;
+        tooltip.querySelector('.mt-time').textContent = point.t;
+        document.getElementById('mt-sys').textContent = `系统内存 ${point.sys_pct}%`;
+        document.getElementById('mt-pal').textContent = pointPalPct === null
+          ? `PalServer ${point.palserver_mb}MB`
+          : `PalServer ${point.palserver_mb}MB (${pointPalPct.toFixed(1)}%)`;
+        document.getElementById('mt-players').textContent = `在线人数 ${point.online_players ?? 0} 人`;
+        // A hidden series has no dot and no crosshair reading either.
+        SERIES.forEach(s => {
+          document.getElementById(s.tipId).style.display = visibleKeys.has(s.key) ? '' : 'none';
+        });
+      }
+
+      function onLeave() {
+        crosshair.setAttribute('visibility', 'hidden');
+        SERIES.forEach(s => hoverDots[s.key].setAttribute('visibility', 'hidden'));
+        tooltip.style.display = 'none';
+      }
+
+      hitRect.addEventListener('mousemove', onMove);
+      hitRect.addEventListener('mouseleave', onLeave);
+      hitRect.addEventListener('touchmove', onMove, { passive: true });
+      hitRect.addEventListener('touchend', onLeave);
+    }
+
+    // The collapse headers are <div>s (they hold their own nested buttons,
+    // so they can't be <button>s themselves) and get no Enter/Space handling
+    // for free. Delegated rather than per-element because several of these
+    // headers are generated by renderIdlePanel on every poll.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const t = e.target;
+      if (!t || !t.matches || !t.matches('[data-keyactivate]')) return;
+      e.preventDefault();
+      t.click();
+    });
+
+    // ─── Base panels ───
+    // Which bases exist is the backend's answer (status.json's "bases"),
+    // not a constant here: _get_base_meta enumerates every base camp the
+    // player's guild owns, so building a new one in-game gives it a panel
+    // on the next poll. This table only supplies presentation per
+    // position; a base past the end of it still renders, under a generic
+    // label, rather than silently not rendering at all.
+    const BASE_STYLES = [
+      { label: '1号据点', icon: '🚩', color: 'var(--cyan)' },
+      { label: '2号据点', icon: '⛰️', color: 'var(--indigo)' },
+      { label: '3号据点', icon: '🏯', color: 'var(--amber)' },
+      { label: '4号据点', icon: '🏕️', color: 'var(--green)' },
+    ];
+    // [{ key: 'base1', prefix: 'b1', label, icon, color }], rebuilt by
+    // syncBasePanels whenever the set of bases changes. Everything that
+    // used to name b1/b2 explicitly iterates this instead.
+    let BASES = [];
+
+    function basePanelHtml(b) {
+      return `<div class="base-panel" id="${b.key}-panel" style="--base-color:${b.color}">
+          <div class="base-header">
+            <div class="base-title">
+              <span class="base-title-name">${b.icon} ${b.label}</span>
+              <span class="base-badge" id="${b.prefix}-count">0</span>
+              <span class="base-role" id="${b.prefix}-role"></span>
+              <span class="base-food-inline" id="${b.prefix}-food-inline"></span>
+            </div>
+          </div>
+          <div class="base-body">
+            <div class="econ-section">
+              <div class="econ-heading">📦 据点物资</div>
+              <div class="res-group raw">
+                <div class="res-group-head collapse-head" role="button" tabindex="0" data-keyactivate
+                     onclick="toggleResourceGrid('${b.prefix}-res-raw','${b.prefix}-res-raw-toggle')">
+                  <span class="res-group-icon">⛏️</span>
+                  <span class="res-group-title">原材料</span>
+                  <span class="res-group-sub">采集 / 种植 / 帕鲁掉落</span>
+                  <span class="res-group-count" id="${b.prefix}-res-raw-count"></span>
+                  <button class="econ-toggle-btn" id="${b.prefix}-res-raw-toggle" onclick="event.stopPropagation(); toggleResourceGrid('${b.prefix}-res-raw','${b.prefix}-res-raw-toggle')">展开全部</button>
+                </div>
+                <div class="resource-grid truncated" id="${b.prefix}-res-raw"></div>
+              </div>
+              <div class="res-group proc">
+                <div class="res-group-head collapse-head" role="button" tabindex="0" data-keyactivate
+                     onclick="toggleResourceGrid('${b.prefix}-res-proc','${b.prefix}-res-proc-toggle')">
+                  <span class="res-group-icon">⚙️</span>
+                  <span class="res-group-title">一次加工材料</span>
+                  <span class="res-group-sub">熔炼 / 工作台一步加工</span>
+                  <span class="res-group-count" id="${b.prefix}-res-proc-count"></span>
+                  <button class="econ-toggle-btn" id="${b.prefix}-res-proc-toggle" onclick="event.stopPropagation(); toggleResourceGrid('${b.prefix}-res-proc','${b.prefix}-res-proc-toggle')">展开全部</button>
+                </div>
+                <div class="resource-grid truncated" id="${b.prefix}-res-proc"></div>
+              </div>
+            </div>
+            <div class="econ-row">
+              <div class="econ-section">
+                <div class="econ-heading">⚙️ 核心产出速率 <span class="econ-unit">每小时</span></div>
+                <div id="${b.prefix}-rates"><div class="empty-state">数据采集中…</div></div>
+              </div>
+              <div class="econ-section">
+                <div class="econ-heading">⚡ 电力</div>
+                <div id="${b.prefix}-power"><div class="empty-state">数据采集中…</div></div>
+              </div>
+            </div>
+            <div class="econ-section">
+              <div class="econ-heading collapse-head" role="button" tabindex="0" data-keyactivate
+                   onclick="toggleCollapse('${b.prefix}-facilities','${b.prefix}-facilities-toggle')">
+                🏭 设施 <span id="${b.prefix}-facility-total"></span>
+                <button class="econ-toggle-btn" id="${b.prefix}-facilities-toggle" onclick="event.stopPropagation(); toggleCollapse('${b.prefix}-facilities','${b.prefix}-facilities-toggle')">展开</button>
+              </div>
+              <div class="facility-chips collapsible collapsed" id="${b.prefix}-facilities"></div>
+            </div>
+            <div class="econ-section">
+              <div class="econ-heading">🐾 帕鲁 / 工作适应性</div>
+              <div class="pal-filter" id="${b.prefix}-pal-filter"></div>
+              <div class="pal-table-wrap" id="${b.prefix}-pal-table"></div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // Rebuild the panels only when the set of base keys actually changes —
+    // every poll would otherwise blow away the DOM (and with it the open
+    // resource grids and charts) sixty times an hour for no reason.
+    function syncBasePanels(keys) {
+      const wanted = (keys && keys.length ? keys : ['base1', 'base2']);
+      if (BASES.length === wanted.length && BASES.every((b, i) => b.key === wanted[i])) return;
+
+      BASES = wanted.map((key, i) => {
+        const n = parseInt(key.slice(4), 10) || (i + 1);
+        const style = BASE_STYLES[n - 1] || { label: `${n}号据点`, icon: '📍', color: 'var(--text-faint)' };
+        return { key, prefix: `b${n}`, ...style };
+      });
+      for (const b of BASES) {
+        if (palFilter[b.prefix] === undefined) palFilter[b.prefix] = uiState[`f:${b.prefix}`] || 'ALL';
+        if (groupCollapsed[b.key] === undefined) groupCollapsed[b.key] = !!uiState[`g:${b.key}`];
+      }
+      document.getElementById('bases-col').innerHTML = BASES.map(basePanelHtml).join('');
+      document.getElementById('base-tab-nav').innerHTML = BASES.map(b => `
+        <button class="base-tab-btn" id="${b.prefix}-tab" style="--base-color:${b.color}" onclick="switchBase('${b.key}')">
+          ${b.icon} ${b.label}<span class="base-tab-count" id="${b.prefix}-tab-count"></span>
+        </button>`).join('');
+      COLLAPSIBLES = STATIC_COLLAPSIBLES.concat(
+        BASES.map(b => [`${b.prefix}-facilities`, `${b.prefix}-facilities-toggle`]));
+      RESOURCE_GRIDS = BASES.flatMap(b => [
+        [`${b.prefix}-res-raw`, `${b.prefix}-res-raw-toggle`],
+        [`${b.prefix}-res-proc`, `${b.prefix}-res-proc-toggle`],
+      ]);
+      restoreUiState();
+      applyBaseSelection();
+      renderCraftBaseChips();
+    }
+
+    // Which base's panel is on screen. Remembered across reloads like every
+    // other panel state; a remembered base that no longer exists (it was
+    // dismantled in-game, or this is a first visit) falls back to the first
+    // one rather than leaving the tab empty.
+    let activeBase = null;
+
+    function switchBase(key) {
+      activeBase = key;
+      uiState['a:base'] = key;
+      saveUiState();
+      applyBaseSelection();
+    }
+
+    function applyBaseSelection() {
+      if (!BASES.length) return;
+      if (activeBase === null) activeBase = uiState['a:base'] || null;
+      if (!BASES.some(b => b.key === activeBase)) activeBase = BASES[0].key;
+      for (const b of BASES) {
+        const on = b.key === activeBase;
+        document.getElementById(`${b.key}-panel`).classList.toggle('active', on);
+        document.getElementById(`${b.prefix}-tab`).classList.toggle('active', on);
+      }
+      syncPalHeadPins();
+    }
+
+    // Tab switching: which tab is active is purely a display:none/block
+    // toggle — fetchData() keeps rendering into every tab's elements
+    // regardless of which one is visible, so switching tabs never shows
+    // stale data and never needs a re-fetch.
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+      try { localStorage.setItem('activeTab', name); } catch (e) {}
+      syncPalHeadPins();
+    }
+
+    // Re-renders instantly from the last poll's data rather than waiting
+    // up to 15s for the next fetchData() tick.
+    let lastData = null;
+
+    // Theme: light is the default (no data-theme attribute — :root's base
+    // palette is light), dark is opt-in via :root[data-theme="dark"]. The
+    // choice is remembered in localStorage so it survives a refresh.
+    function applyTheme(theme) {
+      if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+    }
+    function toggleTheme() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const next = isDark ? 'light' : 'dark';
+      localStorage.setItem('palDashboardTheme', next);
+      applyTheme(next);
+    }
+    applyTheme(localStorage.getItem('palDashboardTheme') || 'light');
+
+    function setResourceGrid(gridId, toggleId, truncated) {
+      const grid = document.getElementById(gridId);
+      const btn = document.getElementById(toggleId);
+      if (!grid || !btn) return;
+      grid.classList.toggle('truncated', truncated);
+      btn.textContent = truncated ? '展开全部' : '收起';
+    }
+
+    function toggleResourceGrid(gridId, toggleId) {
+      const truncated = !document.getElementById(gridId).classList.contains('truncated');
+      setResourceGrid(gridId, toggleId, truncated);
+      uiState[`r:${gridId}`] = truncated;
+      saveUiState();
+    }
+
+    function setCollapsed(elId, btnId, collapsed) {
+      const el = document.getElementById(elId);
+      const btn = document.getElementById(btnId);
+      if (!el || !btn) return;
+      el.classList.toggle('collapsed', collapsed);
+      btn.textContent = collapsed ? '展开' : '收起';
+    }
+
+    function toggleCollapse(elId, btnId) {
+      const collapsed = !document.getElementById(elId).classList.contains('collapsed');
+      setCollapsed(elId, btnId, collapsed);
+      uiState[`c:${elId}`] = collapsed;
+      saveUiState();
+      // Chart bodies hold no data until they're opened — see refreshCharts.
+      if (!collapsed && CHART_BODIES.includes(elId)) refreshCharts();
+    }
+
+    // Every collapsible on the page, as [bodyId, toggleButtonId]. Used to
+    // restore the saved open/closed state on load; the toggle handlers
+    // above write into the same uiState the restore pass reads.
+    const STATIC_COLLAPSIBLES = [
+      ['idle-content', 'idle-toggle'],
+      ['mem-chart-body', 'mem-chart-toggle'],
+    ];
+    // The per-base entries are appended by syncBasePanels once it knows
+    // which panels exist — a base's collapsibles can't be registered
+    // before its markup has been created.
+    let COLLAPSIBLES = STATIC_COLLAPSIBLES.slice();
+    let RESOURCE_GRIDS = [];
+    const CHART_BODIES = ['mem-chart-body'];
+
+    function restoreUiState() {
+      for (const [elId, btnId] of COLLAPSIBLES) {
+        const saved = uiState[`c:${elId}`];
+        if (saved !== undefined) setCollapsed(elId, btnId, saved);
+        else setCollapsed(elId, btnId, document.getElementById(elId).classList.contains('collapsed'));
+      }
+      for (const [gridId, btnId] of RESOURCE_GRIDS) {
+        const saved = uiState[`r:${gridId}`];
+        if (saved !== undefined) setResourceGrid(gridId, btnId, saved);
+      }
+    }
+
+    // ─── Chart history: fetched on demand, never inlined in status.json ───
+    // memory_history.json is ~150KB and used to ride along inside
+    // status.json on every poll, for a chart that is often never opened.
+    // It's read only while that chart is actually on screen.
+    // (food_history.json is still written by the backend — it's what the
+    // depletion estimate in each base header is computed from — but nothing
+    // on this page fetches it since the per-base satiety chart was removed.)
+    let memoryHistory = [];
+    async function loadMemoryHistory() {
+      try {
+        const r = await fetch(`memory_history.json?t=${Date.now()}`);
+        if (r.ok) memoryHistory = await r.json();
+      } catch (e) { /* keep the previous copy rather than blanking the chart */ }
+      return memoryHistory;
+    }
+
+    function isOpen(id) {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('collapsed');
+    }
+
+    async function refreshCharts() {
+      if (isOpen('mem-chart-body')) renderMemChart(await loadMemoryHistory());
+    }
+
+    // Item/building display names come from the game's own official
+    // zh-Hans localization (vendored from palworld-save-pal's data set,
+    // keyed by the same internal IDs the save file uses — see
+    // the state directory's data/*_l10n.json), fetched once at load rather than
+    // hand-typed, so display text actually matches in-game names.
+    // Unrecognized IDs fall back to the raw save-file ID.
+    let ITEM_NAMES = {};
+    let BUILDING_NAMES = {};
+    let PAL_NAMES = {};
+    function itemName(id) { return (ITEM_NAMES[id] && ITEM_NAMES[id].localized_name) || id; }
+    function facilityName(id) { return (BUILDING_NAMES[id] && BUILDING_NAMES[id].localized_name) || id; }
+    // Wild "Alpha"/boss pals reuse their base species' name in-game (a
+    // badge marks them as a boss, not a separate name) — palworld-save-pal's
+    // l10n data reflects that: boss-prefixed CharacterIDs aren't their own
+    // entries, so a miss on the raw id falls back to the id with that
+    // prefix stripped before giving up and showing the raw id. The prefix
+    // casing isn't consistent in the save data itself (BOSS_Manticore but
+    // Boss_Anubis), so this strips case-insensitively.
+    function palName(id) {
+      if (PAL_NAMES[id]) return PAL_NAMES[id].localized_name;
+      const m = id.match(/^boss_(.+)$/i);
+      const stripped = m ? m[1] : null;
+      if (stripped && PAL_NAMES[stripped]) return PAL_NAMES[stripped].localized_name;
+      return id;
+    }
+
+    // Non-localized gameplay metadata (item category, pal work-suitability
+    // ranks) — same vendored source as the *_l10n.json name files, just the
+    // data half instead of the display-name half.
+    let ITEMS_META = {};
+    let PALS_META = {};
+    let WORK_SUITABILITY_NAMES = {};
+    let BUILDINGS_META = {};
+    // { items: {itemId: [{materials:[[id,count]...], count, work, ambiguous?}]},
+    //   buildings: {buildingId: {materials, work}} } — built by
+    // build_recipe_data.py; see that script's docstring for where each half
+    // comes from and why the game's own pak isn't the source.
+    let RECIPES = { items: {}, buildings: {} };
+    // { shops: {shopId: {merchant, locations:[{name, coords?}], note?}},
+    //   items: {itemId: [{shop, price, currency}]} } — built by
+    // build_merchant_data.py. Answers "this material can just be bought, and
+    // here is who from and where they stand".
+    let MERCHANTS = { shops: {}, items: {} };
+
+    async function loadNameData() {
+      try {
+        const [items, buildings, pals, itemsMeta, palsMeta, suitabilityNames, buildingsMeta, recipes, merchants] = await Promise.all([
+          fetch('data/items_l10n.json').then(r => r.json()),
+          fetch('data/buildings_l10n.json').then(r => r.json()),
+          fetch('data/pals_l10n.json').then(r => r.json()),
+          fetch('data/items_meta.json').then(r => r.json()),
+          fetch('data/pals_meta.json').then(r => r.json()),
+          fetch('data/work_suitability_l10n.json').then(r => r.json()),
+          fetch('data/buildings_meta.json').then(r => r.json()),
+          fetch('data/recipes.json').then(r => r.json()),
+          fetch('data/merchants.json').then(r => r.json()),
+        ]);
+        ITEM_NAMES = items;
+        BUILDING_NAMES = buildings;
+        PAL_NAMES = pals;
+        ITEMS_META = itemsMeta;
+        PALS_META = palsMeta;
+        WORK_SUITABILITY_NAMES = suitabilityNames;
+        BUILDINGS_META = buildingsMeta;
+        RECIPES = recipes;
+        MERCHANTS = merchants;
+        buildCraftIndex();
+      } catch (err) {
+        console.error('Failed to load name data, falling back to raw IDs:', err);
+      }
+    }
+
+    // "据点物资" is meant to answer "what raw/semi-processed materials does
+    // this base have", not list every quest item, capture ball, or potion
+    // that happens to be sitting in a chest — those clutter the view and
+    // aren't "base economy" in the sense the dashboard is for. Palworld's
+    // own item categorization (type_a/type_b, from the same vendored data
+    // as the display names) makes this a lookup instead of a guess:
+    // type_a "Material" already covers raw resources AND one-step
+    // processed goods (ore -> ingot) in the same bucket; type_a "Food"
+    // covers raw crop/animal produce, but its "FoodDish*" subtypes are
+    // cooked multi-ingredient meals, a step beyond "primary processed", so
+    // those are excluded. Money is tagged type_a Material by the game but
+    // isn't a base resource in any meaningful sense, so it's special-cased out.
+    function isResourceItem(id) {
+      const meta = ITEMS_META[id];
+      if (!meta || id === 'Money') return false;
+      if (meta.type_a === 'Material') return true;
+      if (meta.type_a === 'Food') return !(meta.type_b || '').startsWith('FoodDish');
+      return false;
+    }
+    // "矿物" for the pre-expand sort priority: raw ore/stone specifically,
+    // not the wood/food/ingot items that also pass isResourceItem().
+    function isMineral(id) {
+      const meta = ITEMS_META[id];
+      return !!meta && (meta.type_b === 'MaterialOre' || meta.type_b === 'MaterialStone');
+    }
+
+    function suitabilityName(id) {
+      return (WORK_SUITABILITY_NAMES[id] && WORK_SUITABILITY_NAMES[id].localized_name) || id;
+    }
+    // Same boss-prefix fallback as palName(), for looking up a pal's
+    // work-suitability ranks by CharacterID.
+    function palWorkSuitability(id) {
+      if (PALS_META[id]) return PALS_META[id].work_suitability || null;
+      const m = id.match(/^boss_(.+)$/i);
+      const stripped = m ? m[1] : null;
+      if (stripped && PALS_META[stripped]) return PALS_META[stripped].work_suitability || null;
+      return null;
+    }
+
+    // Which crafted item each station type turns out. Only the mapping is
+    // here — the recipes themselves come from recipes.json like everywhere
+    // else on this page, because the datamined recipe table records what a
+    // recipe costs but not which station runs it, and a second hand-kept
+    // copy of the costs is a copy that goes stale (the one this replaced
+    // had lost 石英 from the 帕鲁金属锭 recipe).
+    //
+    // The furnace list carries the upgrade tiers as well as the first
+    // three: a save whose furnaces are all 巨大熔炉 / 古代文明炉 would
+    // otherwise read "未建造" on every ingot row while two furnaces stood
+    // there smelting.
+    const FURNACE_TYPES = ['BlastFurnace', 'BlastFurnace2', 'BlastFurnace3', 'BlastFurnace4', 'AncientBlastFurnace'];
+    const STATION_OUTPUTS = {
+      Crusher: ['Pal_crystal_S'],
+      ...Object.fromEntries(FURNACE_TYPES.map(f => [f, ['CopperIngot', 'IronIngot', 'StealIngot']])),
+    };
+
+    // Every way this station type can make something, as [outputId,
+    // {materialId: count}] — the recipe rows recipes.json holds for each of
+    // its output items.
+    function stationRecipes(type) {
+      return (STATION_OUTPUTS[type] || []).flatMap(itemId =>
+        (RECIPES.items[itemId] || []).map(r =>
+          [itemId, Object.fromEntries(r.materials.map(([id, n]) => [id, n]))]));
+    }
+    // ─── What each base is for ───
+    // The classification itself is the backend's (see _classify_base_role
+    // in palmon/metrics.py): it reads the game's own building
+    // datatable to bucket each placed facility, and cross-checks the
+    // result against what the base measurably produced in the last hour.
+    // Only the wording is decided here.
+    const ROLE_ZH = {
+      gathering: '采集', crafting: '加工', farming: '种植',
+      cooking: '烹饪', breeding: '繁育', power: '供电',
+    };
+    const OUTPUT_BUCKET_ZH = { gathering: '原料', crafting: '加工品', food: '食物', other: '其他' };
+
+    function baseRoleLabel(role) {
+      const tags = (role && role.tags) || [];
+      if (!tags.length) return '';
+      return `${tags.map(t => ROLE_ZH[t] || t).join('·')}据点`;
+    }
+
+    // The one-line detail under the label: what it actually produced in
+    // the measured window, and — when a base is built for work it isn't
+    // doing — which of its roles came back empty. "还在积累数据" is a
+    // third, distinct state: no window yet is not the same as no output.
+    function baseRoleDetail(role) {
+      if (!role || !role.tags || !role.tags.length) return '';
+      const minutes = role.output_minutes || 0;
+      if (!minutes) return '产出数据积累中';
+      const parts = Object.entries(role.output || {})
+        .filter(([, v]) => v > 0)
+        .sort((a, c) => c[1] - a[1])
+        .map(([k, v]) => `${OUTPUT_BUCKET_ZH[k] || k} +${v.toLocaleString()}`);
+      const stalled = (role.stalled || []).map(t => ROLE_ZH[t] || t);
+      const head = parts.length ? `近${minutes}分钟 ${parts.join(' · ')}` : `近${minutes}分钟无产出`;
+      return stalled.length ? `${head}（${stalled.join('/')}无产出）` : head;
+    }
+
+    // Per-base collapse state for the idle panel, independent of the
+    // whole-card collapse toggle — re-render regenerates that panel's
+    // innerHTML from scratch every poll, so the open/closed state has to
+    // live here rather than on the (about to be replaced) DOM nodes.
+    // Seeded per base by syncBasePanels, from the same saved uiState.
+    const groupCollapsed = {};
+
+    function toggleGroupCollapse(baseKey) {
+      groupCollapsed[baseKey] = !groupCollapsed[baseKey];
+      uiState[`g:${baseKey}`] = groupCollapsed[baseKey];
+      saveUiState();
+      if (lastData) renderIdlePanel('idle-content', lastData);
+    }
+
+    // Wraps one base's section body in a clickable heading + collapsible
+    // body, sharing the collapse state above across re-renders.
+    function baseGroupBlock(g, bodyHtml) {
+      const collapsed = groupCollapsed[g.key];
+      return `
+        <div class="proposal-base-heading collapse-head" role="button" tabindex="0" data-keyactivate onclick="toggleGroupCollapse('${g.key}')">
+          <span class="base-collapse-arrow ${collapsed ? 'collapsed' : ''}">▾</span>${g.icon} ${g.label}${g.roleLabel ? `<span class="role-tag">${g.roleLabel}</span>` : ''}
+        </div>
+        <div class="collapsible ${collapsed ? 'collapsed' : ''}">${bodyHtml}</div>
+      `;
+    }
+
+    // Below this, a pal/facility counts as "long-idle" rather than just
+    // "not working this instant" — work_ratio (pal) and avg_staff_ratio
+    // (staffed/task-type facility) are already long-run measures (see
+    // their backend docstrings), so this is a threshold on a trend, not a
+    // snapshot. Farm plots (auto-type) don't use this threshold at all —
+    // see facilityCategory below.
+    const IDLE_RATIO_THRESHOLD = 0.3;
+    // A gross_rate window shorter than this isn't enough to call "no
+    // output" a real trend rather than bad luck on the sampling window —
+    // used for task-facility recipe output (hasNoActiveTask). Farm plots
+    // don't need this either: their growth state is read directly, not
+    // inferred from a windowed output history.
+    const PRODUCTION_IDLE_MIN_MINUTES = 30;
+
+    // What "idle" even means differs by what kind of work a facility type
+    // needs — derived from FACILITY_SUITABILITY (already sourced from
+    // official in-game descriptions) rather than a second hand-typed list:
+    //  - Mining/Deforest/GenerateElectricity is continuous-presence work —
+    //    output tracks staffing directly, so staffing ratio IS the idle
+    //    signal (unchanged from before).
+    //  - Seeding (farm plots) don't need anyone standing there once
+    //    seeded — staffing ratio is meaningless for them, and so is an
+    //    output-history proxy (a plot that's still growing normally has
+    //    no output yet either). base1_farm_growth/base2_farm_growth
+    //    (backend, from each plot's own save-data growth state) is the
+    //    real idle signal instead — see buildIdleFacilityGroups' auto-row
+    //    block.
+    //  - Watering-only (Crusher/FlourMill), EmitFlame (kitchens/furnaces)
+    //    and ProductMedicine need BOTH a worker present AND a
+    //    raw-material task queued. Either one missing looks idle but
+    //    needs a different fix, so both get checked and reported
+    //    separately.
+    //  - Handcraft (sphere/weapon assembly lines, workbenches) is
+    //    excluded entirely rather than lumped into "task": a pal only
+    //    ever staffs one of these once the player manually queues a
+    //    specific item to build, so a 0% staffing ratio just means
+    //    "nothing queued" — not understaffed. There's also no fixed
+    //    recipe/output-item data for these (the player can queue
+    //    anything), so "no task" can't be confirmed either. Reporting
+    //    staffing for these would just be a false "无人在岗" every time
+    //    nothing happens to be queued right now.
+    function facilityCategory(type) {
+      const suit = FACILITY_SUITABILITY[type];
+      // Unclassified types are excluded, NOT reported as understaffed. The
+      // old fallback was 'staffed', which meant every facility missing from
+      // FACILITY_SUITABILITY got judged by staffing ratio — and the ones
+      // missing are exactly the ones whose requirement is unknown or which
+      // need no worker at all (BreedFarm, Lab, HatchingPalEgg, storage,
+      // beds, hot springs). That produced flat false "长期无人在岗" alarms.
+      // Staying silent about a facility we can't classify is the correct
+      // failure mode; the fix for a real omission is to add it above.
+      if (!suit) return 'excluded';
+      if (suit.includes('Seeding')) return 'auto';
+      if (suit.some(s => ['Mining', 'Deforest', 'GenerateElectricity', 'MonsterFarm'].includes(s))) return 'staffed';
+      if (suit.includes('Handcraft')) return 'excluded';
+      // Medicine benches only run when somebody is actually sick, so an
+      // empty one is normal, not idle — reported only alongside a sick pal.
+      if (suit.includes('ProductMedicine')) return 'ondemand';
+      return 'task';
+    }
+
+
+    // Whether currently-stored+pending raw material is enough for at least
+    // one recipe this facility type can run — null when this facility type
+    // isn't one STATION_OUTPUTS maps, so callers can tell "confirmed short
+    // on material" apart from "unknown, no recipe data for this one"
+    // instead of the two looking the same.
+    function materialAvailability(type, resources, pending) {
+      const stockOf = id => (resources[id] || 0) + (pending[id] || 0);
+      const recipes = stationRecipes(type);
+      if (recipes.length === 0) return null;
+      return recipes.some(([, inputs]) =>
+        Object.entries(inputs).every(([inId, need]) => stockOf(inId) >= need));
+    }
+
+    // Whether a staffed facility has actually been *producing* anything —
+    // distinct from materialAvailability's "is there enough raw material
+    // in storage" (a full stockpile doesn't mean the player ever queued a
+    // recipe for it to consume). STATION_OUTPUTS names this facility
+    // type's output items directly — reusing the same gross_rate item-gain data
+    // renderRates already shows, the same way farm output is checked.
+    // Returns null (unknown, not true) rather than false when this
+    // facility type isn't one of the few recipes modeled, or the window is
+    // too short to trust — "no confirmed output" and "confirmed no output"
+    // shouldn't look the same.
+    function hasNoActiveTask(type, gainByItem, minutesOk) {
+      const outputItems = STATION_OUTPUTS[type] || [];
+      if (outputItems.length === 0 || !minutesOk) return null;
+      return outputItems.every(itemId => !gainByItem[itemId]);
+    }
+
+    function idlePalTable(pals) {
+      return `<table class="proposal-table">
+        <thead><tr><th>帕鲁</th><th>工作占比</th><th>样本数</th></tr></thead>
+        <tbody>${pals.map(p => `<tr>
+          <td>${p.name ? `${p.name} <span class="pal-type">${palName(p.type)}</span>` : palName(p.type)}</td>
+          <td>${Math.round(p.work_ratio * 100)}%</td>
+          <td>${p.work_ratio_samples}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    function staffedFacilityTable(facs) {
+      return `<table class="proposal-table">
+        <thead><tr><th>设施</th><th>已建</th><th>平均在岗率</th></tr></thead>
+        <tbody>${facs.map(f => `<tr>
+          <td>${facilityName(f.type)}</td>
+          <td>${f.placed}</td>
+          <td>${Math.round(f.avg_staff_ratio * 100)}%</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    function autoFacilityTable(facs) {
+      return `<table class="proposal-table">
+        <thead><tr><th>设施</th><th>已建</th><th>状态</th></tr></thead>
+        <tbody>${facs.map(f => `<tr>
+          <td>${facilityName(f.type)}</td>
+          <td>${f.placed}</td>
+          <td>${f.waiting}/${f.placed} 已成熟待收获</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    // A "无任务" row deliberately blanks its 在岗率 cell: when nothing is
+    // queued, the staffing ratio is a consequence of that, and printing it
+    // next to the real root cause just invites fixing the wrong thing.
+    function taskFacilityTable(facs) {
+      return `<table class="proposal-table">
+        <thead><tr><th>设施</th><th>已建</th><th>在岗率</th><th>原因</th></tr></thead>
+        <tbody>${facs.map(f => `<tr>
+          <td>${facilityName(f.type)}</td>
+          <td>${f.placed}</td>
+          <td>${f.reason === '无任务' ? '<span class="muted-cell">—</span>' : `${Math.round(f.avg_staff_ratio * 100)}%`}</td>
+          <td>${f.reason}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    function buildIdleFacilityGroups(b, d) {
+      const facilityIdle = d[`${b.key}_facility_idle`] || {};
+      const facilitiesNow = d[`${b.key}_facilities`] || {};
+      const resources = d[`${b.key}_resources`] || {};
+      const pending = d[`${b.key}_resources_pending`] || {};
+      const grossRate = d[`${b.key}_gross_rate`] || { items: [], minutes: 0 };
+      const gainByItem = {};
+      grossRate.items.forEach(it => { gainByItem[it.item] = it.gross_gain; });
+
+      const staffedRows = [];
+      const taskRows = [];
+      const autoRows = [];
+
+      const minutesOk = grossRate.minutes >= PRODUCTION_IDLE_MIN_MINUTES;
+
+      // Medicine benches (cat 'ondemand') are only worth flagging when
+      // there is actually somebody to treat — an unmanned clinic with no
+      // sick pal in the base is working as intended, not idle.
+      const hasSickPal = (d[`${b.key}_pals`] || []).some(p => p.sick);
+
+      for (const [type, info] of Object.entries(facilityIdle)) {
+        const cat = facilityCategory(type);
+        if (cat === 'staffed') {
+          if (info.avg_staff_ratio < IDLE_RATIO_THRESHOLD) staffedRows.push({ type, ...info });
+        } else if (cat === 'ondemand') {
+          if (hasSickPal && info.avg_staff_ratio < IDLE_RATIO_THRESHOLD) {
+            taskRows.push({ type, ...info, reason: '有帕鲁生病，但无人在岗' });
+          }
+        } else if (cat === 'task') {
+          const matOk = materialAvailability(type, resources, pending);
+          const noTask = hasNoActiveTask(type, gainByItem, minutesOk);
+          const staffLow = info.avg_staff_ratio < IDLE_RATIO_THRESHOLD;
+          const matBad = matOk === false;
+          if (!staffLow && !matBad && !noTask) continue;
+          // noTask is checked first: when it's confirmed true, "nobody's
+          // queued a recipe" is the root cause and a low staffing ratio is
+          // just a downstream symptom of that (no task queued -> nothing
+          // for a pal to do there -> it doesn't get assigned) rather than
+          // an independent problem. So it's reported alone — appending
+          // "长期无人在岗" on top would bury the one thing that actually
+          // needs fixing under a symptom of it.
+          let reason;
+          if (noTask) reason = '无任务';
+          else if (staffLow && matBad) reason = '无人在岗 + 原料不足';
+          else if (staffLow) reason = matOk === null ? '无人在岗' : '无人在岗（原料充足）';
+          else reason = '已在岗，但原料长期不足';
+          taskRows.push({ type, ...info, reason });
+        }
+        // 'auto' (farm) rows are handled below from facilitiesNow instead —
+        // facility_idle only tracks staffing, which doesn't apply to farms.
+      }
+
+      // Read straight from each plot's own growth state (base1_farm_growth /
+      // base2_farm_growth — see _parse_farm_growth_state's docstring)
+      // instead of inferring idleness from output history: a farm plot
+      // doesn't need continuous staffing, and a "still growing, no output
+      // yet" plot isn't idle just because its window looks flat. Only
+      // report a crop type when at least one of its plots is confirmed
+      // matured-and-uncollected ("waiting"); a plot still growing is left
+      // out entirely, not shown as any kind of status.
+      const farmGrowth = d[`${b.key}_farm_growth`] || {};
+      for (const [type, growth] of Object.entries(farmGrowth)) {
+        if (growth.waiting > 0) {
+          const placed = facilitiesNow[type] || (growth.growing + growth.waiting + growth.other);
+          autoRows.push({ type, placed, waiting: growth.waiting });
+        }
+      }
+
+      staffedRows.sort((a, c) => a.avg_staff_ratio - c.avg_staff_ratio);
+      taskRows.sort((a, c) => a.avg_staff_ratio - c.avg_staff_ratio);
+      autoRows.sort((a, c) => c.waiting - a.waiting);
+      return { staffedRows, taskRows, autoRows };
+    }
+
+    // Grouped by base rather than one flat table spanning all of them, so
+    // the base column doesn't repeat on every row: pals well below the
+    // work-ratio threshold, plus each facility category's own idle
+    // criterion, sorted most-idle-first, under their own base heading.
+    function renderIdlePanel(elId, d) {
+      const el = document.getElementById(elId);
+      const groups = BASES.map(b => {
+        const pals = (d[`${b.key}_pals`] || [])
+          .filter(p => p.work_ratio != null && p.work_ratio < IDLE_RATIO_THRESHOLD)
+          .sort((a, c) => a.work_ratio - c.work_ratio);
+        return { ...b, pals, ...buildIdleFacilityGroups(b, d), roleLabel: baseRoleLabel(d[`${b.key}_role`] || {}) };
+      });
+
+      const isEmpty = g => g.pals.length === 0 && g.staffedRows.length === 0
+        && g.taskRows.length === 0 && g.autoRows.length === 0;
+
+      if (groups.every(isEmpty)) {
+        // "Nothing is idle" and "there is nothing to judge idleness with
+        // yet" look identical in an empty panel, and they mean opposite
+        // things — the second one shows up for ~20 minutes after the job
+        // history's schema is bumped (PAL_JOBS_SCHEMA), which discards the
+        // older samples on purpose. A pal keeps work_ratio: null until it
+        // has enough usable samples, so that's the signal.
+        const measured = BASES.some(b => (d[`${b.key}_pals`] || []).some(p => p.work_ratio != null));
+        el.innerHTML = measured
+          ? '<div class="empty-state">暂无长期空闲的帕鲁或设施</div>'
+          : '<div class="empty-state">工作记录基准刚重置，正在重新积累样本（约 20 分钟后给出趋势）</div>';
+        return;
+      }
+
+      el.innerHTML = groups.filter(g => !isEmpty(g)).map(g => baseGroupBlock(g, `
+        ${g.pals.length ? `<div class="proposal-subheading">长期低负载帕鲁</div>${idlePalTable(g.pals)}` : ''}
+        ${g.staffedRows.length ? `<div class="proposal-subheading">值守型设施（长期无人在岗）</div>${staffedFacilityTable(g.staffedRows)}` : ''}
+        ${g.autoRows.length ? `<div class="proposal-subheading">自运行型设施（农园，已成熟待收获）</div>${autoFacilityTable(g.autoRows)}` : ''}
+        ${g.taskRows.length ? `<div class="proposal-subheading">任务+值守型设施（无任务 / 缺原料 / 缺人手）</div>${taskFacilityTable(g.taskRows)}` : ''}
+      `)).join('');
+    }
+
+    // Facility MapObjectId -> work-suitability type(s) it requires a pal to
+    // have to operate it. Not present in any vendored data file (checked) —
+    // derived from this session's own fetch of the official zh-Hans building
+    // descriptions, which mostly spell out the requirement directly (e.g.
+    // StonePit: "挖掘...交给擅长挖掘的帕鲁吧"; Crusher/FlourMill: "需要有
+    // 具备「浇水」适应性的帕鲁"; kitchens/furnaces: "需要火系帕鲁点火").
+    // Only facilities with an explicit, evidenced requirement are listed;
+    // ambiguous ones (Lab, BreedFarm, HatchingPalEgg) are deliberately left
+    // out rather than guessed, same policy as everywhere else in this file.
+    const FACILITY_SUITABILITY = {
+      CoalPit: ['Mining'], CopperPit: ['Mining'], CopperPit_2: ['Mining'],
+      QuartzPit: ['Mining'], StonePit: ['Mining'], SulfurPit: ['Mining'],
+      CrystalPit: ['Mining'], SkyIslandOrePit: ['Mining'],
+      StationDeforest2: ['Deforest'], StationDeforest3: ['Deforest'],
+      OilPump02: ['OilExtraction'],
+      BlastFurnace: ['EmitFlame'], BlastFurnace2: ['EmitFlame'], BlastFurnace3: ['EmitFlame'],
+      BlastFurnace4: ['EmitFlame'], AncientBlastFurnace: ['EmitFlame', 'Cool'],
+      CampFire: ['EmitFlame'], CookingStove: ['EmitFlame'], ElectricKitchen: ['EmitFlame'],
+      HugeKitchen: ['EmitFlame'], Torch: ['EmitFlame'],
+      AncientCookingStove: ['EmitFlame', 'Handcraft'],
+      Crusher: ['Watering'], FlourMill: ['Watering'],
+      Factory_Hard_01: ['Handcraft'], Factory_Hard_02: ['Handcraft'], Factory_Hard_03: ['Handcraft'],
+      Factory_Hard_04: ['Handcraft'], FishingPond2: ['Handcraft'],
+      AncientWorkBench: ['Handcraft', 'ProductMedicine'],
+      WeaponFactory_Dirty_01: ['Handcraft'], WeaponFactory_Dirty_02: ['Handcraft'], WeaponFactory_Dirty_03: ['Handcraft'],
+      SphereFactory_Black_02: ['Handcraft'], SphereFactory_Black_03: ['Handcraft'],
+      SphereFactory_Black_04: ['Handcraft'],
+      WorkBench_SkillUnlock: ['Handcraft'], Workbench: ['Handcraft'], CompositeDesk: ['Handcraft'],
+      MedicineFacility_01: ['ProductMedicine'], MedicineFacility_02: ['ProductMedicine'],
+      MedicineFacility_03: ['ProductMedicine'], Clinic: ['ProductMedicine'],
+      ElectricGenerator: ['GenerateElectricity'], ElectricGenerator_Large: ['GenerateElectricity'],
+      // "需要有高级发电适应性的帕鲁，还需要具备浇水适应性的帕鲁负责冷却"
+      AncientElectricGenerator: ['GenerateElectricity', 'Watering'],
+      MonsterFarm: ['MonsterFarm'],
+      Refrigerator: ['Cool'], CoolerBox: ['Cool'],
+      FarmBlockV2_Berries: ['Seeding', 'Watering'], FarmBlockV2_Carrot: ['Seeding', 'Watering'],
+      FarmBlockV2_Lettuce: ['Seeding', 'Watering'], FarmBlockV2_Onion: ['Seeding', 'Watering'],
+      FarmBlockV2_Potato: ['Seeding', 'Watering'], FarmBlockV2_tomato: ['Seeding', 'Watering'],
+      FarmBlockV2_wheet: ['Seeding', 'Watering'],
+    };
+
+    // Facility MapObjectIds worth calling out with an icon; everything else
+    // in base1_facilities/base2_facilities still counts toward the total
+    // and appears in the plain chip list under its official name, just
+    // without an icon.
+    const FACILITY_ICONS = {
+      ElectricGenerator: '⚡', ElectricGenerator_Large: '⚡',
+      AncientElectricGenerator: '⚡',
+      EnergyStorage_Electric: '🔋',
+      ItemChest: '📦', ItemChest_02: '📦', ItemChest_03: '📦',
+      GuildChest: '📦', Container01_Iron: '📦',
+      PalFoodBox: '🍖', MonsterFarm: '🐾', BreedFarm: '🥚',
+    };
+
+    // Power: consume_energy_speed (per-facility-type, fixed — not
+    // pal-dependent) comes straight from the game's own building data
+    // (BUILDINGS_META, vendored alongside the other *_meta.json files), so
+    // consumption is fully grounded.
+    //
+    // Current charge / capacity (each base's *_power_storage) is real save
+    // data: generators and the battery carry a live "current charge" float
+    // in their raw bytes (backend-parsed — see POWER_STORAGE_TYPES in
+    // update_pal_base_data.py for the validation: re-read ~40 minutes
+    // apart in the same session, values had moved off their round
+    // starting points instead of staying fixed). The capacities there are
+    // calibrated against real readings, not taken from the wiki, whose
+    // figures those readings contradict.
+    //
+    // Generation *rate* has no equivalent field anywhere in the save, so
+    // this is estimated from two wiki numbers multiplied together:
+    // - GENERATOR_SPEED_BY_LEVEL: the Generating Electricity page's values
+    //   table (rank 1-5 -> 250/500/1000/2000/4000 energy/sec), which is
+    //   itself the regular Power Generator's output at each rank (its own
+    //   coefficient is 1.0, so this table already *is* that generator's
+    //   real per-rank rate).
+    // - GENERATOR_COEFFICIENT: each building's own "power per worker"
+    //   multiplier relative to the regular generator (confirmed against
+    //   this exact server: the user checked the in-game UI and saw 1/s
+    //   for the regular generator and 3/s for the large one, matching the
+    //   wiki numbers exactly).
+    // output = coefficient x GENERATOR_SPEED_BY_LEVEL[rank]. The Human-
+    // Powered Generator explicitly needs no work suitability ("does not
+    // require specific work suitability" per its wiki page), so there's
+    // no rank to look up for it — it's counted flat at coefficient x the
+    // rank-1 table value whenever a pal is assigned. This is the one
+    // number on this dashboard that isn't grounded in the save itself.
+    //
+    // The Ancient Power Generator is listed in GENERATOR_TYPES but has no
+    // GENERATOR_COEFFICIENT entry, which is deliberate and means two
+    // different things at once: it counts toward "generators placed /
+    // staffed" (leaving it out made a base whose only generator is one
+    // read as having no generator at all), but its output stays
+    // out of the estimate because the wiki documents no rate for it.
+    const GENERATOR_TYPES = [
+      'ElectricGenerator', 'ElectricGenerator_Large', 'ManualElectricGenerator',
+      'AncientElectricGenerator',
+    ];
+    const GENERATOR_SPEED_BY_LEVEL = { 1: 250, 2: 500, 3: 1000, 4: 2000, 5: 4000 };
+    function tableSpeedForRank(rank) {
+      if (!rank || rank < 1) return 0;
+      if (GENERATOR_SPEED_BY_LEVEL[rank]) return GENERATOR_SPEED_BY_LEVEL[rank];
+      // Wiki only documents ranks 1-5 (a clean x2 per level); extrapolated
+      // the same way for any higher rank a save might carry.
+      return 250 * Math.pow(2, rank - 1);
+    }
+    const GENERATOR_COEFFICIENT = {
+      ElectricGenerator: 1.0,
+      ElectricGenerator_Large: 3.0,
+      ManualElectricGenerator: 0.2,
+    };
+    const GENERATOR_FLAT_RATE = new Set(['ManualElectricGenerator']);
+    function estimatedGenerationRate(pals) {
+      let total = 0;
+      for (const p of (pals || [])) {
+        const coeff = GENERATOR_COEFFICIENT[p.job];
+        if (!coeff) continue;
+        if (GENERATOR_FLAT_RATE.has(p.job)) {
+          total += coeff * GENERATOR_SPEED_BY_LEVEL[1];
+          continue;
+        }
+        const ws = palWorkSuitability(p.type);
+        const rank = (ws && ws.GenerateElectricity) || 0;
+        total += coeff * tableSpeedForRank(rank);
+      }
+      return total;
+    }
+
+    function facilityConsumption(id) {
+      const meta = BUILDINGS_META[id];
+      if (!meta || meta.required_energy_type !== 'Electric') return 0;
+      return meta.consume_energy_speed || 0;
+    }
+
+    // Unlike ore/wood/stone pits, the oil pump runs on its own once built
+    // and powered — no pal needs to be working it (confirmed by the user
+    // against live gameplay). Its Workee slot only lets a pal speed it up;
+    // it isn't gated behind staffing the way the other consumers below
+    // are, so it always draws its full rated power regardless of staffed
+    // count.
+    const UNSTAFFED_AUTO_RUN = new Set(['OilPump02']);
+
+    // "Active" draw uses how many pals are actually working each facility
+    // type in this base (already computed for the job column) as a proxy
+    // for how many instances are currently drawing power, capped at the
+    // placed count — a facility with a work slot but nobody in it isn't
+    // pulling its full rated draw. UNSTAFFED_AUTO_RUN facilities are the
+    // exception: they draw full power even unstaffed.
+    function renderPower(elId, facilities, pals, storage) {
+      const el = document.getElementById(elId);
+      const staffedByType = {};
+      for (const p of (pals || [])) {
+        if (p.job) staffedByType[p.job] = (staffedByType[p.job] || 0) + 1;
+      }
+
+      const generatorRows = GENERATOR_TYPES
+        .filter(id => facilities[id])
+        .map(id => ({ id, count: facilities[id], staffed: Math.min(staffedByType[id] || 0, facilities[id]) }));
+      const generatorTotal = generatorRows.reduce((s, r) => s + r.count, 0);
+      const generatorStaffed = generatorRows.reduce((s, r) => s + r.staffed, 0);
+
+      const consumers = Object.entries(facilities)
+        .map(([id, count]) => ({ id, count, perUnit: facilityConsumption(id) }))
+        .filter(c => c.perUnit > 0)
+        .map(c => ({
+          ...c,
+          staffed: Math.min(staffedByType[c.id] || 0, c.count),
+        }))
+        .map(c => ({
+          ...c,
+          activeDraw: c.perUnit * (UNSTAFFED_AUTO_RUN.has(c.id) ? c.count : c.staffed),
+          maxDraw: c.perUnit * c.count,
+        }))
+        .sort((a, b) => b.activeDraw - a.activeDraw);
+
+      const activeTotal = consumers.reduce((s, c) => s + c.activeDraw, 0);
+
+      if (generatorTotal === 0 && consumers.length === 0) {
+        el.innerHTML = '<div class="empty-state">暂无电力相关设施</div>';
+        return;
+      }
+
+      const genPct = generatorTotal ? Math.round(generatorStaffed / generatorTotal * 100) : 0;
+      const cap = (storage && storage.capacity) || 0;
+      const cur = (storage && storage.current) || 0;
+      const chargePct = cap ? Math.round(cur / cap * 100) : 0;
+      const genRate = estimatedGenerationRate(pals);
+
+      // Load = actual consumption vs *generation* (not vs max-possible
+      // consumption — that's a separate "满编耗电" stat above). genRate is
+      // the estimate, so this inherits its uncertainty: real charge readings
+      // have been observed draining even when this estimate says generation
+      // comfortably exceeds consumption, meaning genRate likely runs
+      // optimistic (pals aren't always at full effective speed) — shown
+      // as a load ratio, not claimed as exact.
+      let loadPct, loadLabel, loadColor;
+      if (genRate > 0) {
+        const ratio = Math.round(activeTotal / genRate * 100);
+        loadPct = Math.min(100, ratio);
+        loadLabel = `${ratio}%`;
+        loadColor = activeTotal > genRate ? 'var(--rose)' : 'var(--amber)';
+      } else if (activeTotal > 0) {
+        loadPct = 100;
+        loadLabel = '无发电估算，仍在耗电';
+        loadColor = 'var(--rose)';
+      } else {
+        loadPct = 0;
+        loadLabel = '—';
+        loadColor = 'var(--amber)';
+      }
+
+      const chargeBar = cap ? `<div class="power-bar-row">
+        <span class="power-bar-label">当前电量</span>
+        <div class="power-bar-track"><div class="power-bar-fill" style="width:${chargePct}%;background-color:var(--indigo)"></div></div>
+        <span class="power-bar-nums">${Math.round(cur).toLocaleString()} / ${cap.toLocaleString()}</span>
+      </div>` : '';
+
+      const summary = `<div class="power-summary">
+        <div class="power-stat">
+          <span class="power-stat-label">当前耗电</span>
+          <span class="power-stat-val">${activeTotal.toLocaleString()}</span>
+        </div>
+        <div class="power-stat">
+          <span class="power-stat-label">预计发电</span>
+          <span class="power-stat-val">${genRate.toLocaleString()}</span>
+        </div>
+      </div>
+      ${chargeBar}
+      <div class="power-bar-row">
+        <span class="power-bar-label">发电上岗</span>
+        <div class="power-bar-track"><div class="power-bar-fill" style="width:${genPct}%;background-color:var(--cyan)"></div></div>
+        <span class="power-bar-nums">${generatorStaffed} / ${generatorTotal}</span>
+      </div>
+      <div class="power-bar-row">
+        <span class="power-bar-label">耗电负载</span>
+        <div class="power-bar-track"><div class="power-bar-fill" style="width:${loadPct}%;background-color:${loadColor}"></div></div>
+        <span class="power-bar-nums">${loadLabel}</span>
+      </div>`;
+
+      const rows = consumers.length ? `<table class="suit-table">
+        <thead><tr><th>设备</th><th>在岗</th><th>耗电</th></tr></thead>
+        <tbody>${consumers.map(c => {
+          const autoRun = UNSTAFFED_AUTO_RUN.has(c.id);
+          const underStaffed = !autoRun && c.staffed < c.count;
+          const staffLabel = autoRun ? `${c.count} 自动` : `${c.staffed}/${c.count}`;
+          return `<tr>
+            <td>${facilityName(c.id)}</td>
+            <td class="${underStaffed ? 'short' : 'ok'}">${staffLabel}</td>
+            <td>${c.activeDraw.toLocaleString()}/${c.maxDraw.toLocaleString()}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>` : '';
+
+      el.innerHTML = summary + rows;
+    }
+
+    function renderFacilities(chipsId, totalId, facilities) {
+      const chipsEl = document.getElementById(chipsId);
+      const totalEl = document.getElementById(totalId);
+      const entries = Object.entries(facilities || {});
+      const total = entries.reduce((sum, [, n]) => sum + n, 0);
+      totalEl.textContent = total ? `共 ${total} 座` : '';
+      if (entries.length === 0) {
+        chipsEl.innerHTML = '<div class="empty-state">暂无数据</div>';
+        return;
+      }
+      entries.sort((a, b) => b[1] - a[1]);
+      chipsEl.innerHTML = entries.map(([id, count]) => {
+        const icon = FACILITY_ICONS[id];
+        const cls = icon ? 'facility-chip highlight' : 'facility-chip';
+        const label = icon ? `${icon} ${facilityName(id)}` : facilityName(id);
+        return `<span class="${cls}">${label} <b>×${count}</b></span>`;
+      }).join('');
+    }
+
+    // 一次加工材料 — one crafting step away from something gathered,
+    // as opposed to the ore/wood/crop/pal-drop items that come straight
+    // out of the ground, a tree, a plot or a pal. Same policy as
+    // isResourceItem: the game's own item categories decide, not a
+    // hand-typed list, so anything a future update adds files itself.
+    // type_b MaterialIngot is everything a furnace smelts (including
+    // Charcoal), MaterialProccessing everything a workbench-class station
+    // turns raw material into (cloth, nails, planks, cement, circuit
+    // boards, polymer…).
+    //
+    // The two overrides are items whose category describes what the thing
+    // *is* rather than where it comes from: Flour files as FoodVegetable
+    // but comes out of the Flour Mill, and Paldium Fragment files as
+    // MaterialOre but is crushed from Stone at the Crusher (the same two
+    // corrections the backend's CRAFTED_ITEM_OVERRIDES makes, for the
+    // same reason — kept in step with it deliberately).
+    const PROCESSED_TYPE_B = new Set(['MaterialIngot', 'MaterialProccessing']);
+    const PROCESSED_ITEM_OVERRIDES = new Set(['Flour', 'Pal_crystal_S']);
+    function isProcessedItem(id) {
+      if (PROCESSED_ITEM_OVERRIDES.has(id)) return true;
+      const meta = ITEMS_META[id];
+      return !!meta && PROCESSED_TYPE_B.has(meta.type_b);
+    }
+
+    // What kind of thing each item is, taken from the game's own item
+    // category (type_b) rather than a hand-typed list of item ids — the
+    // same source the raw/processed split itself uses. It's a glyph per
+    // category, not per item: the point is to make a grid of 40 tiles
+    // sort itself into ore / wood / crops / drops at a glance, not to
+    // illustrate each item.
+    const ITEM_TYPE_ICON = {
+      MaterialOre: '⛏️', MaterialStone: '🪨', MaterialWood: '🪵',
+      MaterialIngot: '🔩', MaterialProccessing: '⚙️', MaterialJewelry: '💎',
+      MaterialMonster: '🧬', MaterialPalEgg: '🥚', MaterialPalSphere: '🔵',
+      FoodMeat: '🍖', FoodVegetable: '🌿', Drug: '💊',
+    };
+    function itemIcon(id) {
+      if (PROCESSED_ITEM_OVERRIDES.has(id)) return '⚙️';
+      const meta = ITEMS_META[id];
+      return (meta && ITEM_TYPE_ICON[meta.type_b]) || '📦';
+    }
+
+    // Rows past this are hidden until "展开全部" — must match the
+    // .resource-grid.truncated nth-child rule in the stylesheet, which is
+    // what actually does the hiding.
+    const RESOURCE_TRUNCATE_AT = 12;
+
+    // Two grids per base rather than one merged list: 原材料 (what the
+    // base gathers or grows) and 一次加工材料 (what it smelts or crafts
+    // from those), because they answer different questions — the first is
+    // "is the mining keeping up", the second "is the processing chain
+    // moving" — and a single count-sorted list interleaved them.
+    // Both are filtered to real base materials by isResourceItem (see its
+    // comment) so this doesn't turn into a dump of every quest item and
+    // potion in a chest. Each row shows "已入库" plus an amber "+N 待收集"
+    // badge when a gathering node is sitting on some.
+    function renderResources(prefix, stored, pending) {
+      const ids = new Set([...Object.keys(stored || {}), ...Object.keys(pending || {})]);
+      const rows = [...ids].filter(isResourceItem).map(id => ({
+        id, stored: (stored && stored[id]) || 0, pending: (pending && pending[id]) || 0,
+      }));
+      const byStock = (a, b) => (b.stored - a.stored) || (b.pending - a.pending);
+      // Raw materials keep the minerals-first order: what's visible before
+      // "展开全部" should be the ore/stone/coal side of the base, not
+      // berries or fiber. Processed goods have no such split — they're all
+      // one kind of thing — so stock order alone is enough.
+      const raw = rows.filter(r => !isProcessedItem(r.id))
+        .sort((a, b) => (isMineral(b.id) - isMineral(a.id)) || byStock(a, b));
+      const processed = rows.filter(r => isProcessedItem(r.id)).sort(byStock);
+      renderResourceGroup(`${prefix}-res-raw`, raw);
+      renderResourceGroup(`${prefix}-res-proc`, processed);
+    }
+
+    function renderResourceGroup(gridId, rows) {
+      const el = document.getElementById(gridId);
+      const count = document.getElementById(`${gridId}-count`);
+      const btn = document.getElementById(`${gridId}-toggle`);
+      count.textContent = rows.length ? `${rows.length} 种` : '0 种';
+      // Nothing to expand when everything already fits — the button would
+      // just be a control that does nothing.
+      btn.style.display = rows.length > RESOURCE_TRUNCATE_AT ? '' : 'none';
+      if (!rows.length) {
+        el.innerHTML = '<div class="empty-state">暂无</div>';
+        return;
+      }
+      // Bars are scaled against the largest stock in this group, not a
+      // fixed target: there is no "correct" amount of stone to hold, so
+      // the only honest comparison is against the rest of the group.
+      const top = Math.max(...rows.map(r => r.stored + r.pending), 1);
+      el.innerHTML = rows.map(r => {
+        const total = r.stored + r.pending;
+        const pct = Math.max(2, Math.round(total / top * 100));
+        return `<div class="res-tile" title="${itemName(r.id)}：已入库 ${r.stored.toLocaleString()}${
+          r.pending ? `，待收集 ${r.pending.toLocaleString()}` : ''}（本组最大库存的 ${Math.round(total / top * 100)}%）">
+          <div class="res-tile-top">
+            <span class="res-ico">${itemIcon(r.id)}</span>
+            <span class="resource-name">${itemName(r.id)}</span>
+          </div>
+          <div class="res-tile-num">
+            <span class="resource-count">${r.stored.toLocaleString()}</span>
+            ${r.pending ? `<span class="resource-pending">+${r.pending.toLocaleString()} 待收</span>` : ''}
+          </div>
+          <div class="res-bar"><i style="width:${pct}%"></i></div>
+        </div>`;
+      }).join('');
+    }
+
+    // "Core output per hour": gross production, not the net-of-consumption
+    // trend the (deferred) gap list uses. Each base's gross_rate is
+    // computed backend-side by walking every consecutive pair of history snapshots
+    // and summing only the *increases* in (stored + pending) combined — so
+    // an item being mined just as fast as it's being crafted away still
+    // shows up here, where a plain endpoint-to-endpoint delta would read
+    // as zero or negative. See compute_resource_gross_rate()'s docstring
+    // in palmon/metrics.py for the exact method and its limits.
+    function renderRates(elId, grossRate) {
+      const el = document.getElementById(elId);
+      const minutes = (grossRate && grossRate.minutes) || 0;
+      if (minutes === 0) {
+        el.innerHTML = '<div class="empty-state">数据采集中，约需1小时积累趋势…</div>';
+        return;
+      }
+      const gains = (grossRate.items || [])
+        .filter(t => isResourceItem(t.item))
+        .map(t => ({ item: t.item, perHour: t.gross_gain * 60 / minutes }))
+        .sort((a, b) => b.perHour - a.perHour)
+        .slice(0, 8);
+      if (gains.length === 0) {
+        el.innerHTML = `<div class="empty-state">近 ${minutes} 分钟没有观测到产出</div>`;
+        return;
+      }
+      // The unit lives in the section heading, not on all eight rows —
+      // "/ 小时" repeated down a column is noise the eye has to skip past
+      // to compare the numbers it's actually there for.
+      const top = Math.max(...gains.map(g => g.perHour), 1);
+      el.innerHTML = gains.map(g => `<div class="rate-row">
+        <div class="rate-line">
+          <span class="rate-name">${itemIcon(g.item)} ${itemName(g.item)}</span>
+          <span class="rate-val">+${Math.round(g.perHour).toLocaleString()}</span>
+        </div>
+        <div class="res-bar rate-bar"><i style="width:${Math.max(2, Math.round(g.perHour / top * 100))}%"></i></div>
+      </div>`).join('') + `<div class="gap-window">近 ${minutes} 分钟推算</div>`;
+    }
+
+    // Satiety (hunger) restored per item — see SATIETY_VALUES in
+    // update_pal_base_data.py for sourcing and why it's deliberately
+    // partial (no verified value for most pal-specific meat/dish
+    // variants). Backend excludes unmapped items from the satiety total
+    // and reports them separately by raw item count instead of hiding
+    // them. Consumption is each present pal's own food_amount stat
+    // (also from vendored game data) summed up, not a history-based
+    // rate — Food Box contents get moved around by hand too, so a raw
+    // item-count delta can't tell a pal eating apart from a player
+    // restocking/withdrawing, which made the earlier rate-based version
+    // unreliable.
+    function renderFood(elId, storage, consumption) {
+      const el = document.getElementById(elId);
+      if (!storage) { el.textContent = ''; return; }
+      const unmappedCount = Object.keys(storage.unmapped_items || {}).length;
+      const titleParts = [
+        '消耗值为帕鲁自身"食量"属性之和，不是每小时/每分钟的实时速率；耗尽预计基于饱食度历史的实际下降速度推算。',
+      ];
+      if (unmappedCount) {
+        titleParts.push(`另有 ${unmappedCount} 种食物饱食度数值未核实，未计入总量：${
+          Object.entries(storage.unmapped_items).map(([id, c]) => `${itemName(id)}×${c}`).join('、')
+        }`);
+      }
+      el.title = titleParts.join('\n');
+      const etaText = storage.hours_remaining != null
+        ? ` · 预计 ${storage.hours_remaining}h 后耗尽`
+        : '';
+      el.textContent = `🍖 饱食度 ${storage.satiety_total.toLocaleString()} · 消耗值 ${(consumption || 0).toLocaleString()}${unmappedCount ? ' *' : ''}${etaText}`;
+      // An empty food box starves the whole base — it belongs in the alert
+      // colours, not in the same faint grey as the rest of the header line.
+      // Thresholds match the depletion estimate the text already carries:
+      // out now, or under two hours left.
+      const hours = storage.hours_remaining;
+      const critical = storage.satiety_total <= 0 || (hours != null && hours <= 0);
+      const low = !critical && hours != null && hours <= 2;
+      el.classList.toggle('critical', critical);
+      el.classList.toggle('low', low);
+    }
+
+    // ─── Crafting calculator ───
+    // Answers one question: with what this base actually has in storage right
+    // now, how many of this can be made. Recipes come from data/recipes.json
+    // (build_recipe_data.py), stock from the same base payload every other
+    // panel reads, so the two can never disagree with each other.
+    const CRAFT_CATS = [
+      { key: 'ALL', label: '全部' }, { key: 'MAT', label: '材料' }, { key: 'FOOD', label: '食物' },
+      { key: 'CONSUME', label: '消耗品' }, { key: 'AMMO', label: '弹药' }, { key: 'WEAPON', label: '武器' },
+      { key: 'ARMOR', label: '防具' }, { key: 'ACC', label: '配件' }, { key: 'GEAR', label: '帕鲁装备' },
+      { key: 'SPHERE', label: '球 / 模组' }, { key: 'BP', label: '图纸' }, { key: 'BUILD', label: '建筑' },
+      { key: 'OTHER', label: '其他' },
+    ];
+    // Category is the game's own item type, not a hand-sorted list.
+    const CRAFT_CAT_BY_TYPE_A = {
+      Material: 'MAT', Food: 'FOOD', Weapon: 'WEAPON', SpecialWeapon: 'WEAPON',
+      Armor: 'ARMOR', Accessory: 'ACC', Ammo: 'AMMO', Consume: 'CONSUME',
+      Blueprint: 'BP', Essential: 'GEAR', SphereModule: 'SPHERE', Glider: 'GEAR',
+    };
+
+    let CRAFT_INDEX = [];
+    // Only as many rows as stay responsive to scroll and re-render; the search
+    // box is the way past it, and the list says how many it is hiding.
+    const CRAFT_LIST_LIMIT = 200;
+
+    const craftState = {
+      base: uiState['craft:base'] || 'all',
+      pending: uiState['craft:pending'] === true,
+      cat: uiState['craft:cat'] || 'ALL',
+      q: '',
+      selected: uiState['craft:sel'] || null,
+      qty: null,
+      // null = follow whichever recipe current stock does best with; a number
+      // pins the one the reader picked.
+      variant: null,
+    };
+
+    function setCraftVariant(i) {
+      craftState.variant = i;
+      craftState.qty = null;
+      renderCraftDetail();
+    }
+
+    function buildCraftIndex() {
+      const rows = [];
+      // One entry per *product*, not per recipe. Several things have more
+      // than one way to be made — Paldium Fragment alone has thirteen, one
+      // per sphere tier you can break down — and a row each meant the list
+      // showed the same name over and over with no way to tell which was
+      // which. The variants live inside the entry and the detail panel
+      // switches between them.
+      for (const [id, list] of Object.entries(RECIPES.items || {})) {
+        const meta = ITEMS_META[id] || {};
+        const cat = meta.type_b === 'SPWeaponCaptureBall' ? 'SPHERE'
+          : (CRAFT_CAT_BY_TYPE_A[meta.type_a] || 'OTHER');
+        rows.push({
+          kind: 'item', id, name: itemName(id), cat, sort: meta.sort_id || 0,
+          recipes: list.map(r => ({
+            materials: r.materials, count: r.count || 1, work: r.work || 0,
+            ambiguous: r.ambiguous || null,
+          })),
+        });
+      }
+      for (const [id, r] of Object.entries(RECIPES.buildings || {})) {
+        rows.push({
+          kind: 'building', id, name: facilityName(id), cat: 'BUILD', sort: 0,
+          recipes: [{ materials: r.materials, count: 1, work: r.work || 0, ambiguous: null }],
+        });
+      }
+      CRAFT_INDEX = rows;
+      renderCraftCats();
+      renderCraftBaseChips();
+      renderCraftList();
+      renderCraftDetail();
+    }
+
+    // Stock the calculator counts against. "待收集" is the gathering nodes'
+    // own buffers — the material exists at the base but no pal has carried it
+    // to a chest yet, so it's off by default rather than silently counted.
+    function craftInventory() {
+      const inv = {};
+      const keys = craftState.base === 'all' ? BASES.map(b => b.key) : [craftState.base];
+      for (const key of keys) {
+        const stored = (lastData && lastData[`${key}_resources`]) || {};
+        for (const [id, n] of Object.entries(stored)) inv[id] = (inv[id] || 0) + n;
+        if (craftState.pending) {
+          const pend = (lastData && lastData[`${key}_resources_pending`]) || {};
+          for (const [id, n] of Object.entries(pend)) inv[id] = (inv[id] || 0) + n;
+        }
+      }
+      return inv;
+    }
+
+    // The same numbers craftInventory() sums, kept split by base instead:
+    // {itemId: {baseKey: count}}. Always covers every base, not just the
+    // selected source — half the point of showing where stock is, is showing
+    // the base you are *not* counting.
+    function craftStockByBase() {
+      const map = {};
+      for (const b of BASES) {
+        const parts = [(lastData && lastData[`${b.key}_resources`]) || {}];
+        if (craftState.pending) parts.push((lastData && lastData[`${b.key}_resources_pending`]) || {});
+        for (const part of parts) {
+          for (const [id, n] of Object.entries(part)) {
+            if (!n) continue;
+            (map[id] = map[id] || {})[b.key] = (map[id][b.key] || 0) + n;
+          }
+        }
+      }
+      return map;
+    }
+
+    // Batches, not items: a recipe that yields 10 arrows can only be run whole.
+    function craftBatches(recipe, inv) {
+      let batches = Infinity;
+      for (const [mid, need] of recipe.materials) {
+        if (!need) continue;
+        batches = Math.min(batches, Math.floor((inv[mid] || 0) / need));
+      }
+      return Number.isFinite(batches) ? Math.max(0, batches) : 0;
+    }
+
+    // Which of a product's recipes current stock does best with, and how many
+    // that is. Ties keep the earlier recipe, which is the game's own order.
+    function craftBestVariant(entry, inv) {
+      let best = { index: 0, items: -1, batches: 0 };
+      entry.recipes.forEach((r, index) => {
+        const batches = craftBatches(r, inv);
+        const items = batches * r.count;
+        if (items > best.items) best = { index, items, batches };
+      });
+      return best;
+    }
+
+    // Same idea one level down, for the "you could make the missing material"
+    // hint: the variant that current stock makes the most of.
+    function bestSubRecipe(itemId, inv) {
+      const list = RECIPES.items[itemId] || [];
+      let best = null;
+      for (const r of list) {
+        const yieldable = craftBatches(r, inv) * (r.count || 1);
+        if (!best || yieldable > best.yieldable) best = { recipe: r, yieldable };
+      }
+      return best;
+    }
+
+    // "You can just buy this": every shop selling the item, cheapest first,
+    // with where that shop stands. Locations are only as specific as the
+    // source is — the four roaming spots carry map coordinates, settlement
+    // merchants carry the settlement's name, and the caravan carries neither
+    // because it comes to you.
+    function merchantHint(itemId) {
+      const offers = MERCHANTS.items[itemId];
+      if (!offers || !offers.length) return '';
+      const seen = new Set();
+      const parts = offers
+        .slice()
+        .sort((a, b) => (a.price || 0) - (b.price || 0))
+        .map(o => {
+          const shop = MERCHANTS.shops[o.shop] || {};
+          const locs = (shop.locations || []).map(l =>
+            l.coords ? `${l.name} (${l.coords[0]}, ${l.coords[1]})` : l.name).join(' / ');
+          const where = locs || shop.note || '';
+          const price = o.price != null ? `${o.price.toLocaleString()} ${itemName(o.currency)}` : '';
+          return { key: `${shop.merchant}|${where}`, text: `${shop.merchant || o.shop}${price ? ` ${price}` : ''}${where ? ` — ${where}` : ''}` };
+        })
+        // The same merchant can appear once per shop group (the desert red
+        // and green coats both stand in Duneshelter); one line each is enough.
+        .filter(x => !seen.has(x.key) && seen.add(x.key));
+      return `<span class="craft-buy">🛒 可购买：${parts.map(x => x.text).join('；')}</span>`;
+    }
+
+    function craftName(entry) {
+      return entry.kind === 'building' ? facilityName(entry.id) : itemName(entry.id);
+    }
+
+    function setCraftBase(key) {
+      craftState.base = key;
+      uiState['craft:base'] = key;
+      saveUiState();
+      renderCraftBaseChips();
+      renderCraftList();
+      renderCraftDetail();
+    }
+    function setCraftPending(on) {
+      craftState.pending = !!on;
+      uiState['craft:pending'] = craftState.pending;
+      saveUiState();
+      renderCraftList();
+      renderCraftDetail();
+    }
+    function setCraftCat(cat) {
+      craftState.cat = cat;
+      uiState['craft:cat'] = cat;
+      saveUiState();
+      renderCraftCats();
+      renderCraftList();
+    }
+    function setCraftQuery(q) {
+      craftState.q = (q || '').trim().toLowerCase();
+      renderCraftList();
+    }
+    function selectCraft(kind, id) {
+      craftState.selected = `${kind}:${id}`;
+      craftState.qty = null;
+      craftState.variant = null;
+      uiState['craft:sel'] = craftState.selected;
+      saveUiState();
+      renderCraftList();
+      renderCraftDetail();
+    }
+    function setCraftQty(v) {
+      const n = parseInt(v, 10);
+      craftState.qty = Number.isFinite(n) && n > 0 ? n : 1;
+      renderCraftDetail();
+    }
+
+    function renderCraftCats() {
+      const el = document.getElementById('craft-cats');
+      if (!el) return;
+      const counts = {};
+      for (const r of CRAFT_INDEX) counts[r.cat] = (counts[r.cat] || 0) + 1;
+      el.innerHTML = CRAFT_CATS.filter(c => c.key === 'ALL' || counts[c.key])
+        .map(c => `<button class="craft-chip ${craftState.cat === c.key ? 'active' : ''}" onclick="setCraftCat('${c.key}')">
+          ${c.label} <span class="pfc-count">${c.key === 'ALL' ? CRAFT_INDEX.length : counts[c.key]}</span>
+        </button>`).join('');
+    }
+
+    function renderCraftBaseChips() {
+      const el = document.getElementById('craft-base-chips');
+      if (!el) return;
+      const opts = [{ key: 'all', label: '全部据点合计' }]
+        .concat(BASES.map(b => ({ key: b.key, label: `${b.icon} ${b.label}` })));
+      if (!BASES.some(b => b.key === craftState.base) && craftState.base !== 'all') craftState.base = 'all';
+      el.innerHTML = opts.map(o => `<button class="craft-chip ${craftState.base === o.key ? 'active' : ''}" onclick="setCraftBase('${o.key}')">${o.label}</button>`).join('');
+    }
+
+    function craftFiltered() {
+      const q = craftState.q;
+      return CRAFT_INDEX.filter(r => {
+        if (craftState.cat !== 'ALL' && r.cat !== craftState.cat) return false;
+        if (!q) return true;
+        return craftName(r).toLowerCase().includes(q) || r.id.toLowerCase().includes(q);
+      });
+    }
+
+    function renderCraftList() {
+      const el = document.getElementById('craft-list');
+      if (!el) return;
+      if (!CRAFT_INDEX.length) { el.innerHTML = '<div class="empty-state">配方载入中…</div>'; return; }
+      const inv = craftInventory();
+      const rows = craftFiltered().map(r => ({ r, can: craftBestVariant(r, inv).items }));
+      // Craftable first — the list exists to answer "what can I make now" —
+      // then items before buildings (there are 496 buildings, mostly walls
+      // and floors, and they used to bury every item under them), then in
+      // the game's own item order so a category reads familiarly.
+      rows.sort((a, b) => (b.can > 0) - (a.can > 0)
+        || (a.r.kind === 'building') - (b.r.kind === 'building')
+        || a.r.sort - b.r.sort
+        || craftName(a.r).localeCompare(craftName(b.r), 'zh-Hans'));
+      const head = document.getElementById('craft-list-head');
+      const shown = rows.slice(0, CRAFT_LIST_LIMIT);
+      if (head) {
+        const canCount = rows.filter(x => x.can > 0).length;
+        head.textContent = rows.length
+          ? `${rows.length} 种可制作物 · 现有材料可做 ${canCount} 种${rows.length > shown.length ? `（列出前 ${shown.length} 个，可用搜索缩小范围）` : ''}`
+          : '没有匹配的配方';
+      }
+      if (!rows.length) { el.innerHTML = '<div class="empty-state">没有匹配的配方</div>'; return; }
+      // Land on something rather than an empty right-hand panel: the top row
+      // is the most craftable thing in the current filter, which is as good a
+      // starting point as any.
+      if (!CRAFT_INDEX.some(r => `${r.kind}:${r.id}` === craftState.selected)) {
+        const first = shown[0].r;
+        craftState.selected = `${first.kind}:${first.id}`;
+        craftState.qty = null;
+        renderCraftDetail();
+      }
+      el.innerHTML = shown.map(({ r, can }) => {
+        const key = `${r.kind}:${r.id}`;
+        const tag = r.kind === 'building' ? '<span class="craft-row-tag">建筑</span>' : '';
+        return `<button class="craft-row ${craftState.selected === key ? 'active' : ''}" onclick="selectCraft('${r.kind}','${r.id}')">
+          <span class="res-ico">${r.kind === 'building' ? '🏗️' : itemIcon(r.id)}</span>
+          <span class="craft-row-name">${craftName(r)}</span>
+          ${r.recipes.length > 1 ? `<span class="craft-row-tag">${r.recipes.length} 种配方</span>` : ''}
+          ${tag}
+          <span class="craft-row-can ${can ? '' : 'zero'}">${can ? `可做 ${can.toLocaleString()}` : '材料不足'}</span>
+        </button>`;
+      }).join('');
+    }
+
+    function renderCraftDetail() {
+      const el = document.getElementById('craft-detail');
+      if (!el) return;
+      const note = document.getElementById('craft-source-note');
+      if (note) {
+        const label = craftState.base === 'all' ? '全部据点合计'
+          : ((BASES.find(b => b.key === craftState.base) || {}).label || craftState.base);
+        note.textContent = `库存：${label}${craftState.pending ? '（含待收集）' : ''}`;
+      }
+      if (!CRAFT_INDEX.length) return;
+      const entry = CRAFT_INDEX.find(r => `${r.kind}:${r.id}` === craftState.selected);
+      if (!entry) { el.innerHTML = '<div class="empty-state">从左侧选择一个配方</div>'; return; }
+
+      const inv = craftInventory();
+      // Which recipe this panel is about: the reader's pick, or the one
+      // current stock does best with.
+      const best = craftBestVariant(entry, inv);
+      const vIdx = craftState.variant != null && entry.recipes[craftState.variant]
+        ? craftState.variant : best.index;
+      const recipe = entry.recipes[vIdx];
+      const maxBatches = craftBatches(recipe, inv);
+      const maxItems = maxBatches * recipe.count;
+
+      // Summing every base can promise a craft that no single base can
+      // actually run — the materials are real but sitting in three different
+      // chests. When that's the case, say what one base can do on its own.
+      let bestSingle = null;
+      if (craftState.base === 'all' && BASES.length > 1) {
+        for (const b of BASES) {
+          const stored = (lastData && lastData[`${b.key}_resources`]) || {};
+          const one = { ...stored };
+          if (craftState.pending) {
+            for (const [id, n] of Object.entries((lastData && lastData[`${b.key}_resources_pending`]) || {})) {
+              one[id] = (one[id] || 0) + n;
+            }
+          }
+          const items = craftBatches(recipe, one) * recipe.count;
+          if (!bestSingle || items > bestSingle.items) bestSingle = { base: b, items };
+        }
+      }
+      // Target defaults to one batch — the smallest thing you can actually run.
+      const target = craftState.qty || recipe.count;
+      const batches = Math.ceil(target / recipe.count);
+
+      const byBase = craftStockByBase();
+      const counted = key => craftState.base === 'all' || craftState.base === key;
+
+      const rows = recipe.materials.map(([mid, need]) => {
+        const have = inv[mid] || 0;
+        const want = need * batches;
+        const gap = Math.max(0, want - have);
+
+        // Where the material actually sits. Bases outside the selected
+        // source are shown too, dimmed — "2号据点 makes this and has 3,000"
+        // is the answer to a shortage at 3号据点, and summing everything
+        // into one number hides exactly that.
+        const spread = BASES
+          .map(b => ({ b, n: (byBase[mid] || {})[b.key] || 0 }))
+          .filter(x => x.n > 0)
+          .sort((x, y) => y.n - x.n);
+        const where = spread.length
+          ? `<span class="craft-where">${spread.map(x =>
+              `<span class="cw-chip ${counted(x.b.key) ? '' : 'other'}" style="--c:${x.b.color}" title="${
+                x.b.label}${counted(x.b.key) ? '（已计入）' : '（未计入当前库存来源）'}">${x.b.icon} ${
+                x.b.label.replace('据点', '')} ${x.n.toLocaleString()}</span>`).join('')}</span>`
+          : '<span class="craft-where"><span class="cw-none">所有据点都没有</span></span>';
+        // A shortage that another base could cover is a haulage job, not a
+        // production problem, so it gets said outright.
+        const elsewhere = spread.filter(x => !counted(x.b.key)).reduce((n, x) => n + x.n, 0);
+        const haul = gap > 0 && elsewhere > 0
+          ? `<span class="craft-subrecipe">缺 ${gap.toLocaleString()}，其他据点共有 ${elsewhere.toLocaleString()}${
+              elsewhere >= gap ? '，调运即可补齐' : '，调运后仍差 ' + (gap - elsewhere).toLocaleString()}</span>`
+          : '';
+        let sub = '';
+        if (gap > 0) {
+          // One level deep only: "you're short 6 Cloth, and Cloth is itself
+          // craftable from what you have" is useful; a full dependency tree
+          // would be guessing at which base does which step.
+          // Of the material's own recipes, the one current stock does best
+          // with — Paldium Fragment has thirteen, and "crush stone" is only
+          // the useful answer if there is stone.
+          const subBest = bestSubRecipe(mid, inv);
+          if (subBest) {
+            const subRecipe = subBest.recipe;
+            const per = subRecipe.materials.map(([sid, sc]) => `${itemName(sid)}×${sc}`).join(' + ');
+            sub = `<span class="craft-subrecipe">可合成：${per} → ${subRecipe.count || 1} 个${
+              subBest.yieldable ? `（现有材料可先做 ${subBest.yieldable.toLocaleString()} 个）` : '（其原料也不足）'}</span>`;
+          }
+        }
+        return `<tr>
+          <td>${itemName(mid)}${where}${haul}${sub}${gap > 0 ? merchantHint(mid) : ''}</td>
+          <td>${want.toLocaleString()}</td>
+          <td>${have.toLocaleString()}</td>
+          <td class="${gap ? 'short' : 'ok'}">${gap ? `-${gap.toLocaleString()}` : '足够'}</td>
+        </tr>`;
+      }).join('');
+
+      const notes = [];
+      if (entry.kind === 'building') {
+        notes.push('建筑配方来自游戏建筑数据表的建造材料，工作量为建造所需工作量。');
+      }
+      if (recipe.ambiguous) {
+        notes.push(`<span class="craft-warn">⚠ 游戏里有 ${recipe.ambiguous.length + 1} 个物品共用这个名字（${
+          [entry.id].concat(recipe.ambiguous).join(' / ')}），配方按最低阶那个归入，实际可能对应其他阶级。</span>`);
+      }
+      notes.push('库存只统计据点箱子里已入库的数量；玩家背包、帕鲁携带的物品都不在存档的据点库存里，因此不计入。');
+
+      el.innerHTML = `
+        <div class="craft-title">
+          <span class="res-ico">${entry.kind === 'building' ? '🏗️' : itemIcon(entry.id)}</span>
+          ${craftName(entry)}
+          ${entry.kind === 'building' ? '<span class="craft-row-tag">建筑</span>' : ''}
+        </div>
+        <div class="craft-sub">${entry.id} · 每次产出 ${recipe.count} 个${recipe.work ? ` · 工作量 ${recipe.work.toLocaleString()}` : ''}</div>
+        ${entry.kind === 'item' ? merchantHint(entry.id) : ''}
+        ${entry.recipes.length > 1 ? `<div class="craft-variants">
+          <span class="craft-qty-label">${entry.recipes.length} 种配方</span>
+          ${entry.recipes.map((r, i) => {
+            const label = r.materials.map(([sid, sc]) => `${itemName(sid)}×${sc}`).join('+');
+            const yieldable = craftBatches(r, inv) * r.count;
+            return `<button class="craft-chip ${i === vIdx ? 'active' : ''}" onclick="setCraftVariant(${i})" title="${label} → ${r.count} 个，现有材料可做 ${yieldable}">${label}${
+              yieldable ? ` <span class="pfc-count">${yieldable.toLocaleString()}</span>` : ''}</button>`;
+          }).join('')}
+        </div>` : ''}
+        <div class="craft-max ${maxItems ? '' : 'zero'}">
+          ${maxItems ? `最多可做 <b>${maxItems.toLocaleString()}</b> 个（${maxBatches.toLocaleString()} 次制作）` : '当前材料不足，一个都做不了'}
+          ${bestSingle && bestSingle.items < maxItems
+            ? `<span class="craft-split">${bestSingle.items
+                ? `材料分散在多个据点：单个据点最多 ${bestSingle.items.toLocaleString()} 个（${bestSingle.base.icon} ${bestSingle.base.label}），其余需调运`
+                : '材料分散在多个据点，没有任何一个据点能独立完成，需先调运'}</span>`
+            : ''}
+        </div>
+        <div class="craft-qty">
+          <span class="craft-qty-label">想做</span>
+          <input type="number" min="1" step="1" value="${target}" oninput="setCraftQty(this.value)">
+          <span class="craft-qty-label">个 → 需制作 ${batches.toLocaleString()} 次</span>
+          ${maxItems ? `<button class="craft-chip" onclick="setCraftQty(${maxItems})">按最大值</button>` : ''}
+          <button class="craft-chip" onclick="setCraftQty(${recipe.count})">重置</button>
+        </div>
+        <table class="craft-mat-table">
+          <thead><tr><th>材料</th><th>需要</th><th>库存</th><th>缺口</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="craft-note">${notes.join('<br>')}</div>
+      `;
+    }
+
+    // "2026-08-15 04:30:00" → "04:30:00" if today (local date), else "08-15 04:30:00"
+    function formatOfflineSince(str) {
+      const [datePart, timePart] = str.split(' ');
+      if (!timePart) return str;
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (datePart === todayStr) return timePart;
+      return `${datePart.slice(5)} ${timePart}`;
+    }
+
+    // A poll that fails leaves every number on the page frozen at its last
+    // value with no outward sign — the 更新时间 in the corner just stops
+    // advancing, which is easy to miss. markFetchFailed puts that in the top
+    // bar next to the stale-data badge instead.
+    let lastFetchOk = null;
+    function markFetchFailed(why) {
+      const el = document.getElementById('fetch-badge');
+      const since = lastFetchOk
+        ? `，上次成功 ${lastFetchOk.toTimeString().slice(0, 8)}`
+        : '';
+      el.textContent = `⚠ 数据获取失败（${why}）${since}`;
+      el.style.display = '';
+    }
+
+    async function fetchData() {
+      try {
+        const resp = await fetch('status.json?t=' + Date.now());
+        if (!resp.ok) { markFetchFailed(`HTTP ${resp.status}`); return; }
+        const d = await resp.json();
+        lastData = d;
+        // Before anything renders: make sure there is a panel for every
+        // base this poll reported (a no-op unless the set changed).
+        syncBasePanels(d.bases);
+        lastFetchOk = new Date();
+        document.getElementById('fetch-badge').style.display = 'none';
+
+        // Status pill
+        const pill = document.getElementById('server-status');
+        const pillText = document.getElementById('server-status-text');
+        const uptimeEl = document.getElementById('server-uptime');
+        if (d.server_online) {
+          pill.classList.remove('offline');
+          pillText.textContent = '在线';
+          uptimeEl.textContent = d.uptime_display ? `运行 ${d.uptime_display}` : '';
+        } else {
+          pill.classList.add('offline');
+          pillText.textContent = '离线';
+          uptimeEl.textContent = d.offline_since ? `自 ${formatOfflineSince(d.offline_since)} 起离线` : '';
+        }
+
+        // Level.sav couldn't be parsed this update (see palmon/status.py's
+        // _write_stale_status) — base panels below are the last successfully
+        // parsed snapshot, not live, so this needs to be visible rather than
+        // silently showing old numbers as if they were current.
+        const staleBadge = document.getElementById('stale-badge');
+        if (d.data_stale) {
+          staleBadge.style.display = '';
+          staleBadge.textContent = `⚠ 据点数据非实时（截至 ${d.data_stale_since || '?'}）`;
+        } else {
+          staleBadge.style.display = 'none';
+        }
+
+        // Stats
+        const mem = d.memory || {};
+        // The memory chart plots PalServer's RSS as a share of this total — it's
+        // a constant, so it comes off the status poll instead of being repeated
+        // on every history point. See renderMemChart.
+        if (mem.system_total_gb) memChart.sysTotalMb = mem.system_total_gb * 1024;
+        document.getElementById('s-mem').textContent = `${mem.system_pct || 0}%`;
+        const palMem = mem.palserver_mb ? `PalSrv ${mem.palserver_mb}MB` : 'PalSrv 离线';
+        document.getElementById('s-mem-detail').textContent = `${mem.system_used_gb || 0}/${mem.system_total_gb || 0}GB · ${palMem}`;
+        document.getElementById('s-players').textContent = d.online_players || 0;
+        document.getElementById('s-players-max').textContent = `/ ${d.max_players || 8}`;
+        document.getElementById('s-days').textContent = d.game_days || '--';
+        document.getElementById('s-uptime').textContent = d.uptime_display || '--';
+        document.getElementById('s-base-pals').textContent = d.total_base_pals || 0;
+        document.getElementById('s-total-pals').textContent = `全服 ${d.total_all_pals || '--'}`;
+
+        // Alerts stat
+        const totalAlerts = (d.warning_count || 0) + (d.danger_count || 0);
+        const alertEl = document.getElementById('s-alerts');
+        const alertDetail = document.getElementById('s-alert-detail');
+        alertEl.textContent = totalAlerts;
+        if (totalAlerts > 0) {
+          alertEl.style.color = d.danger_count > 0 ? 'var(--rose)' : 'var(--amber)';
+          const parts = [];
+          if (d.danger_count) parts.push(`${d.danger_count} 危险`);
+          if (d.warning_count) parts.push(`${d.warning_count} 疲惫`);
+          alertDetail.textContent = parts.join(' · ');
+        } else {
+          alertEl.style.color = 'var(--text-faint)';
+          alertDetail.textContent = '全部健康';
+        }
+        const tabBadge = document.getElementById('tab-alert-badge');
+        if (totalAlerts > 0) {
+          tabBadge.textContent = totalAlerts;
+          tabBadge.style.display = '';
+        } else {
+          tabBadge.style.display = 'none';
+        }
+
+        // One pass per base, over whatever bases this poll reported —
+        // syncBasePanels has already created any panel that's missing.
+        for (const b of BASES) {
+          const k = b.key, pre = b.prefix;
+          const palCount = d[`total_${k}_count`] || 0;
+          document.getElementById(`${pre}-count`).textContent = `${palCount} 只`;
+          document.getElementById(`${pre}-tab-count`).textContent = palCount;
+          const role = d[`${k}_role`] || {};
+          const roleEl = document.getElementById(`${pre}-role`);
+          roleEl.textContent = baseRoleLabel(role);
+          roleEl.title = baseRoleDetail(role);
+          // Amber only when a role the base is *headlined* for produced
+          // nothing. A side activity going quiet (a single relic
+          // converter, say) belongs in the tooltip, not in a colour that
+          // says the base has stopped doing its job.
+          const headlineStalled = (role.stalled || []).some(t => (role.tags || []).includes(t));
+          roleEl.classList.toggle('stalled', headlineStalled);
+          renderPalFilter(`${pre}-pal-filter`, pre, d[`${k}_pals`], d[`${k}_facilities`]);
+          renderPalTable(`${pre}-pal-table`, d[`${k}_pals`], d[`${k}_facilities`], palFilter[pre]);
+          renderFacilities(`${pre}-facilities`, `${pre}-facility-total`, d[`${k}_facilities`]);
+          renderResources(pre, d[`${k}_resources`], d[`${k}_resources_pending`]);
+          renderRates(`${pre}-rates`, d[`${k}_gross_rate`]);
+          renderPower(`${pre}-power`, d[`${k}_facilities`], d[`${k}_pals`], d[`${k}_power_storage`]);
+          renderFood(`${pre}-food-inline`, d[`${k}_food_storage`], d[`${k}_food_consumption`]);
+        }
+        renderIdlePanel('idle-content', d);
+
+        // Players
+        renderPlayers(d.all_players);
+        renderAlerts(d);
+
+        // Server info
+        const info = document.getElementById('server-info');
+        const lines = [];
+        if (d.server_name) lines.push(d.server_name);
+        if (d.server_version) lines.push(`版本 ${d.server_version}`);
+        lines.push(`数据更新 ${d.updated_at || '--'}`);
+        info.innerHTML = lines.map(l => `<span>${l}</span>`).join('');
+
+        // Update time
+        document.getElementById('update-time').textContent = d.updated_at || '--';
+
+        // The calculator reads the same per-base stock this poll just
+        // delivered, so it re-runs with it rather than waiting for a click.
+        if (CRAFT_INDEX.length) { renderCraftList(); renderCraftDetail(); }
+
+        // Charts pull their own (much larger) history files, and only
+        // while they're open — see refreshCharts.
+        refreshCharts();
+
+      } catch (err) {
+        console.error('Fetch error:', err);
+        markFetchFailed('网络错误');
+      }
+    }
+
+    try {
+      const savedTab = localStorage.getItem('activeTab');
+      if (savedTab) switchTab(savedTab);
+    } catch (e) {}
+    restoreUiState();
+    applySeriesToggles();
+
+    loadNameData().then(fetchData);
+    // 60s, not 15s: palmon/server.py recomputes status.json live on
+    // every GET — a full Level.sav parse, measured ~1.5s — so each open tab
+    // was costing four complete save parses a minute. Nothing on this page
+    // moves fast enough to need a 15-second refresh.
+    setInterval(fetchData, 60000);
+  </script>
+</body>
+</html>
