@@ -7,19 +7,33 @@ state directory. Keeping them apart on disk is what lets the checkout stay
 read-only; stitching them together here is what lets the page go on
 fetching plain relative paths.
 
-GET /status.json re-parses the save before answering, so the page is never
-older than the moment it was asked for. That costs about a second per
-request, which is the right trade for a LAN dashboard one person has open;
-set [web] live_regenerate = false to serve whatever the timer last wrote.
+This process deliberately knows nothing about parsing saves. A GET of
+/status.json that needs fresh data runs `palmon update` as a *subprocess*
+and serves the file it writes. Doing the parse in-process instead costs
+about 450MB at its peak and leaves ~170MB of it resident afterwards, which
+a long-running server never gives back — this way the memory belongs to a
+process that exits, and the server itself stays at around 20MB.
 """
 
 import logging
 import os
+import subprocess
 import sys
+import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-from . import status
-from .config import STATE_DIR, WEB_DIR, WEB_HOST, WEB_LIVE_REGENERATE, WEB_PORT
+from .config import (
+    CONFIG_FILE,
+    LEVEL_SAV,
+    OUTPUT_JSON,
+    REPO_ROOT,
+    STATE_DIR,
+    WEB_DIR,
+    WEB_HOST,
+    WEB_LIVE_MAX_AGE,
+    WEB_LIVE_REGENERATE,
+    WEB_PORT,
+)
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +46,50 @@ STATE_FILES = {
 }
 STATE_PREFIXES = ("/data/",)
 
+# A parse takes ~3s; this only has to be long enough that a slow one isn't
+# killed halfway through leaving the lock held.
+UPDATE_TIMEOUT_SECONDS = 120
+
+
+def _mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def _needs_refresh() -> bool:
+    """Whether status.json is worth regenerating before answering.
+
+    Two reasons, and neither of them is "a browser asked". The save is
+    rewritten by the server every few minutes; between two writes a re-parse
+    produces byte-identical results, so the only honest trigger is the save
+    having moved on. The age ceiling covers what isn't in the save at all —
+    the player list and uptime, which come from the REST API.
+    """
+    status_at = _mtime(OUTPUT_JSON)
+    if not status_at:
+        return True
+    if status_at < _mtime(LEVEL_SAV):
+        return True
+    return (time.time() - status_at) > WEB_LIVE_MAX_AGE
+
+
+def _run_update() -> None:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [REPO_ROOT, env.get("PYTHONPATH", "")]))
+    if CONFIG_FILE:
+        env["PALMON_CONFIG"] = CONFIG_FILE
+    try:
+        subprocess.run([sys.executable, "-m", "palmon.cli", "update"],
+                       cwd=REPO_ROOT, env=env, timeout=UPDATE_TIMEOUT_SECONDS,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       check=True)
+    except Exception as e:
+        # A failed refresh is not a failed request: the previous status.json
+        # is still there, and slightly stale numbers beat an error page.
+        log.warning("refresh failed: %s", e)
+
 
 class DashboardHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
@@ -43,14 +101,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         return super().translate_path(path)
 
     def do_GET(self):
-        if WEB_LIVE_REGENERATE and self.path.split("?", 1)[0] == "/status.json":
-            try:
-                status.analyze_data()
-            except Exception as e:
-                # A failed regenerate is not a failed request: analyze_data
-                # leaves the previous status.json in place, and serving
-                # slightly stale numbers beats serving an error page.
-                log.warning("live regenerate failed: %s", e)
+        if (WEB_LIVE_REGENERATE
+                and self.path.split("?", 1)[0] == "/status.json"
+                and _needs_refresh()):
+            _run_update()
         super().do_GET()
 
     def log_message(self, fmt, *args):
@@ -63,9 +117,9 @@ def serve() -> int:
         print(f"no index.html under {WEB_DIR}", file=sys.stderr)
         return 1
     # Single-threaded on purpose: requests are handled one at a time, which
-    # is fine at ~1s each for a personal dashboard and means no reasoning
-    # about concurrent handlers. The cross-process lock in status.py still
-    # guards against the timer job racing a live request.
+    # is fine for a personal dashboard and means no reasoning about
+    # concurrent handlers. The cross-process lock in status.py still guards
+    # against the timer job racing a refresh started here.
     httpd = HTTPServer((WEB_HOST, WEB_PORT), DashboardHandler)
     print(f"serving {WEB_DIR} on http://{WEB_HOST}:{WEB_PORT}/")
     try:

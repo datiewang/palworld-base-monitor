@@ -241,9 +241,10 @@ def build_status_json(parsed: dict, metrics: dict | None) -> dict:
 def analyze_data():
     """Main entry point: decompress, parse, and write status.json.
 
-    Called both by the 5-minute timer and, live, by the web server on every
-    dashboard page load — wrapped in a file lock since both paths read and
-    rewrite the same memory_history.json / .metrics_cache.json state files.
+    Called by the 5-minute timer, and by the web server (as a subprocess)
+    when a page load finds status.json older than the save it reports on.
+    Wrapped in a file lock since both paths read and rewrite the same
+    memory_history.json / .metrics_cache.json state files.
     """
     with open(LOCK_FILE, "w") as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)

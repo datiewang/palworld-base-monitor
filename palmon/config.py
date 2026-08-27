@@ -151,10 +151,17 @@ FOOD_HISTORY_MAX_POINTS = setting("history", "food_max_points", 2000)
 # ─── The dashboard's own HTTP server ──────────────────────────────────────
 WEB_HOST = setting("web", "host", "0.0.0.0")
 WEB_PORT = setting("web", "port", 8088)
-# Whether GET /status.json re-parses the save before answering. On, the page
-# is never stale and each request costs about a second; off, it serves
-# whatever the last run wrote and the timer alone keeps it fresh.
+# Whether GET /status.json refreshes the data before answering. On, the page
+# is never older than the save it reports on; off, it serves whatever the
+# last timer run wrote.
 WEB_LIVE_REGENERATE = setting("web", "live_regenerate", True)
+# The ceiling on how stale a *live* answer may be. The refresh itself is
+# skipped whenever status.json is already newer than Level.sav — the save is
+# only rewritten every few minutes, and re-parsing an unchanged save returns
+# the same numbers at full cost. This bound exists for the half of the
+# document that doesn't come from the save (who is online, uptime), which
+# does keep changing while the save sits still.
+WEB_LIVE_MAX_AGE = setting("web", "live_max_age_seconds", 120)
 
 
 def ensure_dirs() -> None:

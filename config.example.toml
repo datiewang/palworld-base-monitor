@@ -51,10 +51,17 @@ language = "zh-Hans"
 [web]
 host = "0.0.0.0"
 port = 8088
-# With this on, GET /status.json re-parses the save before answering, so the
-# page is never stale and each load costs about a second. Turn it off to
-# serve whatever the last run wrote and let the timer keep it fresh.
+# With this on, a page load refreshes the data first, so the dashboard is
+# never older than the save it reports on. Turn it off to serve whatever the
+# timer last wrote.
+#
+# The refresh is skipped when status.json is already newer than Level.sav:
+# the server only rewrites the save every few minutes, and re-parsing an
+# unchanged save costs a full parse to produce identical numbers. The age
+# ceiling below is for the half of the page that isn't in the save at all
+# (who is online, uptime) and does keep moving while the save sits still.
 live_regenerate = true
+live_max_age_seconds = 120
 
 [history]
 # How much trend data to keep. A resource snapshot is ~8KB (500 of them at
